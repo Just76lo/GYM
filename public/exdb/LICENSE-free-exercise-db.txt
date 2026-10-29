@@ -1,0 +1,3 @@
+Übungsdaten und Bilder: free-exercise-db (https://github.com/yuhonas/free-exercise-db)
+Lizenz: The Unlicense (gemeinfrei / Public Domain), geprüft über die GitHub-API am 2026-10-29.
+Die Bilder wurden für die Offline-Nutzung auf 240 px verkleinert (JPEG).
