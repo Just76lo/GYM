@@ -7,8 +7,9 @@ import { fmt } from '../logic/progression'
 import { analyzeCycle, applyProposals, proposeNextPlan, validatePlan } from '../logic/review'
 import { buildSummary } from '../logic/summary'
 import type { WeekType } from '../logic/types'
-import { useLibrary } from './ExerciseSheet'
-import { copyText, go } from './common'
+import { useLibrary } from './useLibrary'
+import { Icon } from './icons'
+import { copyText, go } from './util'
 
 export function Review() {
   const lib = useLibrary()
@@ -115,7 +116,7 @@ export function Review() {
       <button className="btn block" onClick={async () => {
         const text = buildSummary(data.active, data.sessions, bw, report, data.cyc.startDate)
         setMsg((await copyText(text)) ? 'Zusammenfassung in die Zwischenablage kopiert.' : 'Kopieren nicht möglich.')
-      }}>📋 Zusammenfassung kopieren</button>
+      }}><Icon name="copy" /> Zusammenfassung kopieren</button>
 
       {isCurrent && (
         <>

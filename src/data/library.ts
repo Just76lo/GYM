@@ -1,3 +1,4 @@
+import { alternativeFields } from './alternatives'
 import raw from './exdb.json'
 
 export type LibCategory = 'Kraft' | 'Schnellkraft/Plyometrie' | 'Prävention' | 'Mobility' | 'Rumpf'
@@ -263,6 +264,19 @@ const ADDED: LibExercise[] = [
     mistakesDe: ['Zu viel Schmerz – abbrechen', 'Hüfte sackt ab'],
   }),
   mk({
+    id: 'pallof-band', nameEn: 'Band Pallof Press', nameDe: 'Pallof Press mit Band', category: 'Rumpf',
+    primary: ['abdominals'], equipment: 'bands',
+    instrDe: ['Band seitlich auf Brusthöhe befestigen, schulterbreit stehen.', 'Hände vor der Brust, Arme gerade nach vorn drücken.', '2 s halten, ohne dass der Oberkörper zum Band dreht.'],
+    mistakesDe: ['Oberkörper rotiert mit', 'Zu wenig Abstand – Band ohne Spannung'],
+  }),
+  mk({
+    id: 'dumbbell-jump', nameEn: 'Dumbbell Jump', nameDe: 'Sprünge mit Kurzhanteln', category: 'Schnellkraft/Plyometrie',
+    primary: ['quadriceps', 'glutes'], secondary: ['calves'], equipment: 'dumbbell', legsLoad: 'mittel',
+    ok2DaysBeforeGame: false,
+    instrDe: ['Leichte Kurzhanteln seitlich halten, Arme lang.', 'Kurz ausholen und maximal hoch springen.', 'Weich landen, neu aufstellen, nächster Sprung.'],
+    mistakesDe: ['Zu schwer – Sprung wird langsam', 'Hanteln schwingen mit'],
+  }),
+  mk({
     id: 'hip-9090', nameEn: 'Hip 90/90 Mobility', nameDe: 'Hüfte 90/90', category: 'Mobility', primary: ['glutes', 'adductors'], equipment: 'body only',
     instrDe: ['Beide Knie im 90°-Winkel zur Seite ablegen.', 'Oberkörper aufrecht, zwischen den Seiten rotieren.'],
     mistakesDe: ['Rundrücken', 'Gesäß hebt ab'],
@@ -286,11 +300,12 @@ let cache: LibExercise[] | null = null
 export function baseLibrary(): LibExercise[] {
   if (cache) return cache
   const added = new Map(ADDED.map((a) => [a.id, a]))
+  const altFields = alternativeFields()
   const list: LibExercise[] = []
   for (const r of raw as unknown as RawEx[]) {
     const base = fromRaw(r)
-    const o = OVERRIDES[r.id]
-    list.push(o ? { ...base, ...o, source: 'free-exercise-db' } : base)
+    const o = { ...altFields[r.id], ...OVERRIDES[r.id] }
+    list.push({ ...base, ...o, source: 'free-exercise-db' })
     added.delete(r.id)
   }
   for (const a of added.values()) list.push(a)

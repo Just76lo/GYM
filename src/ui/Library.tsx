@@ -4,8 +4,11 @@ import {
   EQUIP_DE, FOCI, LIB_CATEGORIES, MUSCLE_DE, equipDe, muscleDe, nameOf,
   type Focus, type LibCategory, type LibExercise, type Load,
 } from '../data/library'
-import { ExerciseSheet, useLibrary } from './ExerciseSheet'
-import { Sheet, asset } from './common'
+import { ExerciseSheet } from './ExerciseSheet'
+import { useLibrary } from './useLibrary'
+import { Sheet } from './common'
+import { Icon } from './icons'
+import { asset } from './util'
 
 const PAGE = 50
 const tri = (v: string) => (v === '' ? null : v === 'ja')
@@ -52,7 +55,7 @@ export function Library() {
 
   return (
     <>
-      <div className="row spread"><h1>Übungen</h1><button className="btn sm primary" onClick={() => setCreating(true)}>+ Eigene</button></div>
+      <div className="row spread"><h1>Übungen</h1><button className="btn sm primary" onClick={() => setCreating(true)}><Icon name="plus" size={16} /> Eigene</button></div>
       <p className="muted small">{lib.length} Übungen offline (free-exercise-db, Unlicense) · Treffer: {list.length}</p>
       <input type="search" placeholder="Suchen (deutsch/englisch)" value={q} onChange={(e) => { setQ(e.target.value); setPage(1) }} />
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>

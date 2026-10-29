@@ -8,15 +8,16 @@ import { PlanEditor } from './ui/PlanEditor'
 import { Review } from './ui/Review'
 import { Today } from './ui/Today'
 import { Workout } from './ui/Workout'
-import { useHash } from './ui/common'
+import { Icon, type IconName } from './ui/icons'
+import { useHash } from './ui/util'
 
-const TABS = [
-  ['/', '🏋️', 'Heute'],
-  ['/history', '📈', 'Verlauf'],
-  ['/body', '⚖️', 'Körper'],
-  ['/library', '📚', 'Übungen'],
-  ['/more', '⋯', 'Mehr'],
-] as const
+const TABS: [string, IconName, string][] = [
+  ['/', 'today', 'Heute'],
+  ['/history', 'chart', 'Verlauf'],
+  ['/body', 'scale', 'Körper'],
+  ['/library', 'book', 'Übungen'],
+  ['/more', 'more', 'Mehr'],
+]
 
 export default function App() {
   const [ready, setReady] = useState(false)
@@ -49,7 +50,7 @@ export default function App() {
       <div className="main" key={hash.split('/')[1]}>{page}</div>
       <nav className="tabbar">
         {TABS.map(([p, icon, label]) => (
-          <a key={p} href={`#${p}`} className={active(p) ? 'on' : ''}><b>{icon}</b>{label}</a>
+          <a key={p} href={`#${p}`} className={active(p) ? 'on' : ''} aria-current={active(p) ? 'page' : undefined}><Icon name={icon} size={22} />{label}</a>
         ))}
       </nav>
     </div>

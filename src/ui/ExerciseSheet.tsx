@@ -1,25 +1,15 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { db, loadLibrary, type VideoRow } from '../data/db'
+import { db, type VideoRow } from '../data/db'
 import {
   BOX_ALTERNATIVES, FOCI, equipDe, findAlternatives, muscleDe, nameOf, ytSearchUrl, LEVEL_DE,
   type Focus, type LibExercise, type Load,
 } from '../data/library'
-import { Sheet, asset } from './common'
-
-export function useLibrary(): LibExercise[] {
-  const v = useLiveQuery(async () => {
-    const [c, o] = await Promise.all([db.custom.count(), db.overrides.toArray()])
-    return `${c}:${o.map((x) => x.exId + JSON.stringify(x.patch)).join('|')}`
-  }, [])
-  const [lib, setLib] = useState<LibExercise[]>([])
-  useEffect(() => {
-    let alive = true
-    void loadLibrary().then((l) => alive && setLib(l))
-    return () => { alive = false }
-  }, [v])
-  return lib
-}
+import { ALTERNATIVES } from '../data/alternatives'
+import { Sheet } from './common'
+import { useLibrary } from './useLibrary'
+import { Icon } from './icons'
+import { asset } from './util'
 
 export function DemoLoop({ images, alt }: { images: string[]; alt: string }) {
   const [i, setI] = useState(0)
@@ -72,7 +62,7 @@ export function Videos({ exId, name }: { exId: string; name: string }) {
           await db.videos.add({ exId, kind: 'file', name: `${name} · ${new Date().toLocaleDateString('de-DE')}`, blob: f, createdAt: new Date().toISOString() })
           e.target.value = ''
         }} />
-        <button className="btn grow" onClick={() => file.current?.click()}>🎥 Aufnehmen / hochladen</button>
+        <button className="btn grow" onClick={() => file.current?.click()}><Icon name="video" /> Aufnehmen oder hochladen</button>
       </div>
       <label>YouTube-Link hinterlegen</label>
       <div className="row">
@@ -90,8 +80,11 @@ export function ExerciseSheet({ exId, onClose, onPick, pickLabel }: {
   exId: string; onClose: () => void; onPick?: (l: LibExercise) => void; pickLabel?: string
 }) {
   const lib = useLibrary()
-  const ex = lib.find((l) => l.id === exId)
+  const [stack, setStack] = useState<string[]>([exId])
+  const curId = stack[stack.length - 1]
+  const ex = lib.find((l) => l.id === curId)
   const [alt, setAlt] = useState(false)
+  const open = (id: string) => { setStack([...stack, id]); setAlt(false) }
   if (!ex) return <Sheet title="Übung" onClose={onClose}><p className="muted">Nicht in der Bibliothek gefunden.</p></Sheet>
   const patch = async (p: Partial<LibExercise>) => {
     const cur = await db.overrides.get(ex.id)
@@ -99,9 +92,13 @@ export function ExerciseSheet({ exId, onClose, onPick, pickLabel }: {
   }
   const instr = ex.instrDe ?? []
   const alts = findAlternatives(ex, lib, { limit: 6 })
+  const curated = ALTERNATIVES[ex.id] ?? []
   return (
     <Sheet title={nameOf(ex)} onClose={onClose}>
-      {ex.nameDe && <p className="muted">{ex.nameEn}</p>}
+      {stack.length > 1 && (
+        <button className="btn xs" onClick={() => setStack(stack.slice(0, -1))}><Icon name="back" size={14} /> Zurück</button>
+      )}
+      {ex.nameDe && ex.nameDe !== ex.nameEn && <p className="muted">{ex.nameEn}</p>}
       <DemoLoop images={ex.images} alt={ex.nameEn} />
       <div className="chips">
         <span className="badge">{ex.category}</span>
@@ -111,12 +108,27 @@ export function ExerciseSheet({ exId, onClose, onPick, pickLabel }: {
       </div>
       {ex.needsBox && (
         <div className="banner">
-          ⚠️ Braucht eine Box – dein Gym hat keine. Alternativen: {BOX_ALTERNATIVES.join(' · ')}
+          <Icon name="alert" size={16} /> Braucht eine Box, die es in deinem Gym nicht gibt. Alternativen: {BOX_ALTERNATIVES.join(' · ')}
         </div>
       )}
       <p className="small"><b>Ziel:</b> {ex.primary.map(muscleDe).join(', ') || '–'}{ex.secondary.length ? ` · Hilfsmuskeln: ${ex.secondary.map(muscleDe).join(', ')}` : ''}</p>
 
-      <a className="btn block" href={ytSearchUrl(ex)} target="_blank" rel="noreferrer">▶︎ Video ansehen (YouTube-Suche)</a>
+      <a className="btn block" href={ytSearchUrl(ex)} target="_blank" rel="noreferrer"><Icon name="play" /> Video ansehen (YouTube-Suche)</a>
+
+      {curated.length > 0 && (
+        <>
+          <h2>Falls nicht verfügbar</h2>
+          {curated.map((a) => {
+            const l = lib.find((x) => x.id === a.exId)
+            return (
+              <button className="list-item row" key={a.exId} onClick={() => open(a.exId)}>
+                {l?.images[0] ? <img className="thumb" src={asset(`exdb/img/${l.images[0]}`)} alt="" /> : <div className="thumb" />}
+                <div className="grow"><b>{a.name}</b><div className="muted small">{a.why}</div></div>
+              </button>
+            )
+          })}
+        </>
+      )}
 
       <h2>Ausführung</h2>
       {instr.length ? (
@@ -164,13 +176,13 @@ export function ExerciseSheet({ exId, onClose, onPick, pickLabel }: {
 
       <Videos exId={ex.id} name={nameOf(ex)} />
 
-      <h2>Alternativen</h2>
-      <button className="btn sm" onClick={() => setAlt(!alt)}>{alt ? 'Ausblenden' : 'Gleiche Zielmuskeln & Kategorie anzeigen'}</button>
+      <h2>Ähnliche Übungen</h2>
+      <button className="btn sm" onClick={() => setAlt(!alt)}>{alt ? 'Ausblenden' : 'Gleiche Zielmuskeln und Kategorie anzeigen'}</button>
       {alt && alts.map((a) => (
-        <div className="list-item row" key={a.id}>
+        <div className="list-item row" key={a.id} onClick={() => open(a.id)}>
           {a.images[0] && <img className="thumb" src={asset(`exdb/img/${a.images[0]}`)} alt="" />}
           <div className="grow"><b>{nameOf(a)}</b><div className="muted small">{a.primary.map(muscleDe).join(', ')} · {equipDe(a.equipment)}</div></div>
-          {onPick && <button className="btn sm primary" onClick={() => onPick(a)}>{pickLabel ?? 'Wählen'}</button>}
+          {onPick && <button className="btn sm primary" onClick={(e) => { e.stopPropagation(); onPick(a) }}>{pickLabel ?? 'Wählen'}</button>}
         </div>
       ))}
       {onPick && <button className="btn primary block" style={{ marginTop: 14 }} onClick={() => onPick(ex)}>{pickLabel ?? 'Diese Übung wählen'}</button>}

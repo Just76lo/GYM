@@ -5,6 +5,7 @@ import { db, today } from '../data/db'
 import { KCAL_HINT, noGainTwoWeeks, weeklyAverages } from '../logic/bodyweight'
 import { fmt } from '../logic/progression'
 import { Stepper } from './common'
+import { Icon } from './icons'
 
 export function Body() {
   const entries = (useLiveQuery(() => db.bodyweights.toArray()) ?? []).sort((a, b) => a.date.localeCompare(b.date))
@@ -61,7 +62,7 @@ export function Body() {
           <div key={e.date} className="list-item row spread">
             <span>{e.date.split('-').reverse().join('.')}</span>
             <b>{fmt(e.kg)} kg</b>
-            <button className="btn sm danger" onClick={() => db.bodyweights.delete(e.date)}>✕</button>
+            <button className="iconbtn danger" aria-label="Eintrag löschen" onClick={() => db.bodyweights.delete(e.date)}><Icon name="trash" size={18} /></button>
           </div>
         ))}
       </div>

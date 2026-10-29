@@ -1,11 +1,15 @@
-import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { db, finishSession, historyByPid } from '../data/db'
+import { applyAlternative, basePid, restoreOriginal } from '../data/alternatives'
+import { db, finishSession, historyByPid, savePlanVersion, statesMap } from '../data/db'
 import { blockInfo } from '../logic/periodization'
 import { describeSets, doneSets, explosiveStats, fmt } from '../logic/progression'
-import type { ExerciseLog, Prescribed, Session, SetLog } from '../logic/types'
+import { RDL_EXTRA, prescribeOne } from '../logic/session'
+import type { ExerciseLog, Plan, PlanExercise, Prescribed, Session, SetLog } from '../logic/types'
+import { AltSheet, type AltChoice } from './AltSheet'
 import { ExerciseSheet } from './ExerciseSheet'
-import { RestTimer, Stepper, go, unlockAudio, useWakeLock, type TimerState } from './common'
+import { RestTimer, Stepper } from './common'
+import { Icon } from './icons'
+import { go, unlockAudio, useWakeLock, type TimerState } from './util'
 
 const COMPLAINT_FIELDS = [
   ['hamstring', 'Oberschenkelrückseite'],
@@ -14,31 +18,50 @@ const COMPLAINT_FIELDS = [
   ['other', 'Sonstiges'],
 ] as const
 
+const toLog = (p: Prescribed, s: Session): ExerciseLog => ({
+  pid: p.pid, exId: p.exId, name: p.name, kind: p.kind, unit: p.unit, repMin: p.repMin, repMax: p.repMax,
+  targetReps: p.reps, targetWeight: p.weight, reduced: p.reduced, block: s.block, variant: p.variant, sets: [],
+})
+
+/** Planübung, aus der ein Eintrag der Einheit entstanden ist */
+const planExerciseFor = (plan: Plan, s: Session, pid: string): PlanExercise | undefined =>
+  basePid(pid) === RDL_EXTRA.pid ? RDL_EXTRA : plan.days[s.day].find((e) => basePid(e.pid) === basePid(pid))
+
 export function Workout({ id }: { id: number }) {
-  const session = useLiveQuery(() => db.sessions.get(id), [id])
-  const plan = useLiveQuery(async () => (session ? db.plans.get(session.planId) : undefined), [session?.planId])
+  const [session, setSession] = useState<Session | null | undefined>(undefined)
+  const [plan, setPlan] = useState<Plan>()
   const [hist, setHist] = useState<Record<string, ExerciseLog[]>>({})
   const [timer, setTimer] = useState<TimerState | null>(null)
-  const [open, setOpen] = useState<string | null>(null)
+  const [demo, setDemo] = useState<string | null>(null)
+  const [swapIdx, setSwapIdx] = useState<number | null>(null)
   const [showWarm, setShowWarm] = useState(true)
   const [msgs, setMsgs] = useState<string[] | null>(null)
-  const sref = useRef<Session | undefined>(undefined)
-  const pending = useRef(0)
-  if (pending.current === 0) sref.current = session
+  const latest = useRef<Session | null>(null)
   useWakeLock(!!session && !session.finished)
 
   useEffect(() => {
-    void historyByPid().then(setHist)
+    let alive = true
+    void (async () => {
+      const s = (await db.sessions.get(id)) ?? null
+      const [p, h] = await Promise.all([s ? db.plans.get(s.planId) : undefined, historyByPid()])
+      if (!alive) return
+      latest.current = s
+      setSession(s)
+      setPlan(p)
+      setHist(h)
+      if (s && s.warmupDone.length === (p?.warmup.length ?? 0) && s.warmupDone.length) setShowWarm(false)
+    })()
+    return () => { alive = false }
   }, [id])
 
+  /** Ändert die Einheit lokal und speichert sie sofort (kein Datenverlust beim Neuladen). */
   const update = (fn: (s: Session) => void) => {
-    const cur = sref.current
-    if (!cur) return
-    const next = structuredClone(cur)
+    if (!latest.current) return
+    const next = structuredClone(latest.current)
     fn(next)
-    sref.current = next
-    pending.current++
-    void db.sessions.put(next).finally(() => { pending.current-- })
+    latest.current = next
+    setSession(next)
+    void db.sessions.put(next)
   }
 
   if (session === undefined) return <p className="muted">Lade …</p>
@@ -47,26 +70,66 @@ export function Workout({ id }: { id: number }) {
   const blk = blockInfo(session.block)
   const rx = (pid: string) => session.prescription.find((p) => p.pid === pid)!
 
+  const swap = async (i: number, { alt, permanent }: AltChoice) => {
+    const s = latest.current!
+    const entry = s.entries[i]
+    if (!plan) return
+    const base = planExerciseFor(plan, s, entry.pid)
+    if (!base) return
+    if (doneSets(entry.sets).length && !confirm('Für diese Übung sind schon Sätze geloggt. Trotzdem tauschen?')) return
+    const next = alt ? applyAlternative(base, alt) : restoreOriginal(base)
+    const p = prescribeOne(next, {
+      day: s.day, block: s.block, weekType: s.weekType, heavyLegs: s.heavyLegs, history: hist,
+      states: await statesMap(), noExtraLegSet: plan.flags?.noExtraLegSet,
+    }, base.pid === RDL_EXTRA.pid)
+    if (!p) return
+    update((x) => {
+      x.prescription[i] = p
+      x.entries[i] = toLog(p, x)
+    })
+    if (permanent && base.pid !== RDL_EXTRA.pid) {
+      const np = structuredClone(plan)
+      np.days[s.day] = np.days[s.day].map((e) => (e.pid === base.pid ? next : e))
+      const planId = await savePlanVersion(np)
+      setPlan({ ...np, id: planId, version: np.version + 1 })
+    }
+    setSwapIdx(null)
+  }
+
+  const swapEx = swapIdx !== null && plan ? planExerciseFor(plan, session, session.entries[swapIdx].pid) : undefined
+  // Für die Anzeige: der aktuelle Stand dieser Einheit (evtl. nur heute getauscht)
+  const swapShown = swapEx && swapIdx !== null
+    ? (session.entries[swapIdx].exId === swapEx.exId ? swapEx : { ...swapEx, exId: session.entries[swapIdx].exId, orig: swapEx.orig ?? restoreOriginal(swapEx) })
+    : undefined
+
   return (
     <>
-      <div className="row spread">
-        <h1>Gym {session.day} · {session.date.split('-').reverse().join('.')}</h1>
-        <button className="btn sm" onClick={() => go('/')}>‹ Zurück</button>
-      </div>
-      <p className="muted">
-        Woche {session.week} · {blk.label} · Ziel-RIR {blk.rirText}
-        {session.weekType !== 'normal' && ` · ${session.weekType === 'noGame' ? 'ohne Spiel' : 'englische Woche'}`}
-        {session.heavyLegs && ' · Beine schwer'}
-        {session.finished && ' · abgeschlossen'}
-      </p>
-
-      <div className="card">
-        <div className="row spread" onClick={() => setShowWarm(!showWarm)}>
-          <h3>Aufwärmen ({session.warmupDone.length}/{plan?.warmup.length ?? 0})</h3>
-          <span className="muted">{showWarm ? '▲' : '▼'}</span>
+      <div className="pagehead">
+        <button className="iconbtn" aria-label="Zurück" onClick={() => go('/')}><Icon name="back" /></button>
+        <div className="grow">
+          <h1>Gym {session.day}</h1>
+          <div className="muted small">
+            {session.date.split('-').reverse().join('.')} · Woche {session.week} · {blk.label} · Ziel-RIR {blk.rirText}
+          </div>
         </div>
+        {session.finished && <span className="badge ok">abgeschlossen</span>}
+      </div>
+      {(session.weekType !== 'normal' || session.heavyLegs) && (
+        <div className="chips" style={{ marginBottom: 6 }}>
+          {session.weekType === 'noGame' && <span className="badge">Woche ohne Spiel</span>}
+          {session.weekType === 'english' && <span className="badge warn">Englische Woche</span>}
+          {session.heavyLegs && <span className="badge warn">Beine schwer</span>}
+        </div>
+      )}
+
+      <section className="card">
+        <button className="rowbtn" onClick={() => setShowWarm(!showWarm)}>
+          <h3>Aufwärmen</h3>
+          <span className="muted small">{session.warmupDone.length}/{plan?.warmup.length ?? 0}</span>
+          <Icon name={showWarm ? 'up' : 'down'} size={18} />
+        </button>
         {showWarm && plan?.warmup.map((w) => (
-          <label key={w.id} className="check" style={{ margin: 0, color: 'var(--text)', fontSize: '1rem' }}>
+          <label key={w.id} className="check">
             <input
               type="checkbox"
               checked={session.warmupDone.includes(w.id)}
@@ -77,47 +140,46 @@ export function Workout({ id }: { id: number }) {
             <span>{w.text}</span>
           </label>
         ))}
-      </div>
+      </section>
 
-      {session.entries.map((entry, ei) => {
-        const p = rx(entry.pid)
-        return (
-          <ExerciseCard
-            key={entry.pid}
-            p={p}
-            entry={entry}
-            last={hist[entry.pid]}
-            block={session.block}
-            disabled={false}
-            onOpen={() => setOpen(entry.exId)}
-            onSet={(j, patch) => {
-              update((s) => {
-                const e = s.entries[ei]
-                while (e.sets.length <= j) {
-                  const prev = e.sets[e.sets.length - 1]
-                  e.sets.push({ weight: prev?.weight ?? p.weight, reps: prev?.reps ?? p.reps, rir: prev?.rir ?? Math.ceil(p.targetRir), done: false })
-                }
-                const wasDone = e.sets[j].done
-                e.sets[j] = { ...e.sets[j], ...patch }
-                if (patch.done && !wasDone) {
-                  const last = ei === s.entries.length - 1 && j >= p.sets - 1
-                  if (!last) setTimer({ endsAt: Date.now() + p.rest * 1000, total: p.rest, label: p.name })
-                }
-              })
-              if (patch.done) unlockAudio()
-            }}
-          />
-        )
-      })}
+      {session.entries.map((entry, ei) => (
+        <ExerciseCard
+          key={`${ei}-${entry.pid}`}
+          p={rx(entry.pid)}
+          entry={entry}
+          last={hist[entry.pid]}
+          block={session.block}
+          onDemo={() => setDemo(entry.exId)}
+          onSwap={() => setSwapIdx(ei)}
+          onSet={(j, patch) => {
+            const p = rx(entry.pid)
+            update((s) => {
+              const e = s.entries[ei]
+              while (e.sets.length <= j) {
+                const prev = e.sets[e.sets.length - 1]
+                e.sets.push({ weight: prev?.weight ?? p.weight, reps: prev?.reps ?? p.reps, rir: prev?.rir ?? Math.ceil(p.targetRir), done: false })
+              }
+              const wasDone = e.sets[j].done
+              e.sets[j] = { ...e.sets[j], ...patch }
+              if (patch.done && !wasDone) {
+                const last = ei === s.entries.length - 1 && j >= p.sets - 1
+                if (!last) setTimer({ endsAt: Date.now() + p.rest * 1000, total: p.rest, label: p.name })
+              }
+            })
+            if (patch.done) unlockAudio()
+          }}
+        />
+      ))}
 
-      <div className="card">
+      <section className="card">
         <h3>Beschwerden</h3>
-        <p className="muted small">Skala 0–10. Bei Oberschenkelrückseite ≥ 3 geht die Nordic-Stufe zurück.</p>
+        <p className="muted small">Skala 0–10. Ab 3 an der Oberschenkelrückseite geht die Nordic-Stufe eine Stufe zurück.</p>
         {COMPLAINT_FIELDS.map(([k, label]) => (
-          <div key={k} style={{ marginTop: 8 }}>
-            <div className="row spread"><span>{label}</span><b>{session.complaints[k]}</b></div>
+          <div key={k} className="slider">
+            <div className="row spread"><span>{label}</span><b className={session.complaints[k] >= 3 ? 'err' : ''}>{session.complaints[k]}</b></div>
             <input
-              type="range" min={0} max={10} step={1} value={session.complaints[k]} style={{ width: '100%', accentColor: session.complaints[k] >= 3 ? '#ff6b6b' : '#35d07f' }}
+              type="range" min={0} max={10} step={1} value={session.complaints[k]}
+              className={session.complaints[k] >= 3 ? 'hot' : ''}
               onChange={(e) => update((s) => { s.complaints[k] = Number(e.target.value) })}
             />
           </div>
@@ -125,13 +187,13 @@ export function Workout({ id }: { id: number }) {
         {session.complaints.other > 0 && (
           <input type="text" placeholder="Was genau?" value={session.complaints.otherText} onChange={(e) => update((s) => { s.complaints.otherText = e.target.value })} />
         )}
-        {session.complaints.hamstring >= 3 && <div className="banner">Beschwerden Oberschenkelrückseite – Bei anhaltenden Beschwerden Physio aufsuchen.</div>}
-      </div>
+        {session.complaints.hamstring >= 3 && <div className="banner"><Icon name="alert" size={16} /> Bei anhaltenden Beschwerden Physio aufsuchen.</div>}
+      </section>
 
-      <div className="card">
+      <section className="card">
         <h3>Notizen</h3>
-        <textarea value={session.notes} placeholder="Wie lief's? Technik, Gefühl, Besonderheiten …" onChange={(e) => update((s) => { s.notes = e.target.value })} />
-      </div>
+        <textarea value={session.notes} placeholder="Technik, Gefühl, Besonderheiten …" onChange={(e) => update((s) => { s.notes = e.target.value })} />
+      </section>
 
       {msgs ? (
         <div className="banner ok">
@@ -143,59 +205,72 @@ export function Workout({ id }: { id: number }) {
         <button
           className="btn primary block"
           onClick={async () => {
-            const cur = sref.current!
+            const cur = latest.current!
             if (!doneSets(cur.entries.flatMap((e) => e.sets)).length && !confirm('Keine Sätze geloggt. Trotzdem abschließen?')) return
             setMsgs(await finishSession(cur))
             setTimer(null)
           }}
         >
-          {session.finished ? 'Änderungen speichern' : 'Einheit abschließen'}
+          <Icon name="check" /> {session.finished ? 'Änderungen speichern' : 'Einheit abschließen'}
         </button>
       )}
-      <button className="btn danger block" style={{ marginTop: 10 }} onClick={async () => {
+      <button className="btn ghost danger block" style={{ marginTop: 10 }} onClick={async () => {
         if (confirm('Diese Einheit wirklich löschen?')) {
           await db.sessions.delete(id)
           go('/')
         }
-      }}>Einheit löschen</button>
+      }}><Icon name="trash" size={18} /> Einheit löschen</button>
 
       <RestTimer timer={timer} onChange={setTimer} />
-      {open && <ExerciseSheet exId={open} onClose={() => setOpen(null)} />}
+      {demo && <ExerciseSheet exId={demo} onClose={() => setDemo(null)} />}
+      {swapShown && swapIdx !== null && (
+        <AltSheet
+          ex={swapShown}
+          allowPermanent={basePid(swapShown.pid) !== RDL_EXTRA.pid && !session.finished}
+          onPick={(c) => void swap(swapIdx, c)}
+          onClose={() => setSwapIdx(null)}
+        />
+      )}
     </>
   )
 }
 
-function ExerciseCard({ p, entry, last, block, onOpen, onSet }: {
-  p: Prescribed; entry: ExerciseLog; last?: ExerciseLog[]; block: string; disabled: boolean
-  onOpen: () => void; onSet: (j: number, patch: Partial<SetLog>) => void
+function ExerciseCard({ p, entry, last, block, onDemo, onSwap, onSet }: {
+  p: Prescribed; entry: ExerciseLog; last?: ExerciseLog[]; block: string
+  onDemo: () => void; onSwap: () => void; onSet: (j: number, patch: Partial<SetLog>) => void
 }) {
   const rows = Math.max(p.sets, entry.sets.length)
   const unitW = p.unit === 'cm' ? 'cm' : 'kg'
-  const showW = p.kind === 'weight' || (p.kind === 'explosive')
+  const showW = p.kind === 'weight' || p.kind === 'explosive'
   const showRir = p.kind === 'weight' || p.kind === 'nordic'
   const prev = useMemo(() => [...(last ?? [])].reverse().find((l) => doneSets(l.sets).length), [last])
   const stats = useMemo(() => (p.kind === 'explosive' ? explosiveStats(last ?? []) : null), [last, p.kind])
   const range = p.repMin === p.repMax ? `${p.repMin}` : `${p.repMin}–${p.repMax}`
   const repLabel = p.unit === 's' ? 'Sek.' : 'Wdh.'
-  const trend = { up: '↗︎ steigend', flat: '→ stabil', down: '↘︎ fallend', none: '' }
+  const trend = { up: 'steigend', flat: 'stabil', down: 'fallend', none: '' }
+  const doneCount = doneSets(entry.sets).length
 
   return (
-    <div className="card">
-      <div className="row spread" onClick={onOpen} style={{ cursor: 'pointer' }}>
-        <div className="grow">
-          <h3>{p.name}{p.extra ? ' (Zusatz)' : ''}</h3>
+    <section className={`card ex ${doneCount >= p.sets ? 'complete' : ''}`}>
+      <div className="row spread">
+        <button className="titlebtn grow" onClick={onDemo}>
+          <h3>{p.name}{p.extra ? <span className="badge" style={{ marginLeft: 6 }}>Zusatz</span> : null}</h3>
           <div className="muted small">
-            {p.sets} × {range}{p.unit === 's' ? ' s' : ''}{p.perSide ? ' / Seite' : ''}
-            {p.rpe ? ` · RPE ${fmt(p.rpe)}` : ''} · Pause {p.rest} s · Ziel-RIR {fmt(p.targetRir)}
+            {p.sets} × {range}{p.unit === 's' ? ' s' : ''}{p.perSide ? ' pro Seite' : ''}
+            {p.rpe ? ` · RPE ${fmt(p.rpe)}` : ''} · {p.rest} s Pause
           </div>
-        </div>
-        <span className="badge">Demo ▸</span>
+        </button>
+        <span className="muted small">{doneCount}/{p.sets}</span>
+      </div>
+      <div className="row" style={{ marginTop: 8, gap: 6 }}>
+        <button className="btn xs" onClick={onDemo}><Icon name="play" size={14} /> Demo</button>
+        <button className="btn xs" onClick={onSwap}><Icon name="swap" size={14} /> Ausweichen</button>
       </div>
       {p.variant && <div className="hint">Variante: {p.variant}</div>}
       <div className="reason">{p.reason}</div>
       {p.hints.map((h, i) => <div className="hint" key={i}>{h}</div>)}
-      {prev && p.kind !== 'explosive' && <div className="muted small" style={{ marginTop: 4 }}>Zuletzt ({prev.block === block ? 'gleicher Block' : 'früherer Block'}): {describeSets(prev.sets, p.unit)}</div>}
-      {stats && stats.best > 0 && <div className="muted small" style={{ marginTop: 4 }}>Bestwert {fmt(stats.best)} {unitW} · zuletzt {fmt(stats.last)} {unitW} {trend[stats.trend]}</div>}
+      {prev && p.kind !== 'explosive' && <div className="muted small" style={{ marginTop: 4 }}>Zuletzt: {describeSets(prev.sets, p.unit)}</div>}
+      {stats && stats.best > 0 && <div className="muted small" style={{ marginTop: 4 }}>Bestwert {fmt(stats.best)} {unitW} · zuletzt {fmt(stats.last)} {unitW}{stats.trend !== 'none' ? ` · ${trend[stats.trend]}` : ''}</div>}
 
       {Array.from({ length: rows }, (_, j) => {
         const s = entry.sets[j]
@@ -205,14 +280,14 @@ function ExerciseCard({ p, entry, last, block, onOpen, onSet }: {
         const rir = s?.rir ?? prevSet?.rir ?? Math.ceil(p.targetRir)
         const done = !!s?.done
         return (
-          <div key={j}>
+          <div key={j} className={`set ${done ? 'done' : ''}`}>
             <div className="setrow">
               <div className="setno">{j + 1}</div>
               {showW ? (
                 <Stepper label={unitW} value={w} step={p.inc || (p.unit === 'cm' ? 1 : 2.5)} onChange={(v) => onSet(j, { weight: v })} />
               ) : <div />}
               <Stepper label={repLabel} value={r} step={p.unit === 's' ? 5 : 1} decimals={0} onChange={(v) => onSet(j, { reps: v })} />
-              <button className={`donebtn ${done ? 'on' : ''}`} aria-label="Satz erledigt" onClick={() => onSet(j, { done: !done, weight: w, reps: r, rir })}>✓</button>
+              <button className={`donebtn ${done ? 'on' : ''}`} aria-label="Satz erledigt" onClick={() => onSet(j, { done: !done, weight: w, reps: r, rir })}><Icon name="check" size={22} /></button>
               {showRir && (
                 <div className="rir">
                   <span className="lbl">RIR</span>
@@ -222,11 +297,11 @@ function ExerciseCard({ p, entry, last, block, onOpen, onSet }: {
                 </div>
               )}
             </div>
-            {done && p.contrast && block === 'power' && <div className="hint">➜ Kontrast: jetzt 2 Counter-Movement-Jumps</div>}
+            {done && p.contrast && block === 'power' && <div className="hint">Kontrast: jetzt 2 Countermovement Jumps</div>}
           </div>
         )
       })}
-      <button className="btn sm" style={{ marginTop: 10 }} onClick={() => onSet(rows, {})}>+ Satz</button>
-    </div>
+      <button className="btn xs" style={{ marginTop: 10 }} onClick={() => onSet(rows, {})}><Icon name="plus" size={14} /> Satz</button>
+    </section>
   )
 }

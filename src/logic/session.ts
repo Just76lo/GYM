@@ -126,7 +126,9 @@ export interface BuildCtx extends AdjustCtx {
 
 function initialWeight(ex: PlanExercise, history: Record<string, ExerciseLog[]>, inc: number): number | null {
   if (ex.loadFrom) {
-    const src = (history[ex.loadFrom.pid] ?? []).filter((l) => !l.reduced).slice(-1)[0]
+    const from = ex.loadFrom.pid
+    const logs = history[from] ?? Object.entries(history).find(([k]) => k.startsWith(`${from}@`))?.[1] ?? []
+    const src = logs.filter((l) => !l.reduced).slice(-1)[0]
     if (src) {
       const e1 = bestE1rm(src.sets)
       if (e1 > 0) return roundTo(e1 * ex.loadFrom.pct, inc)

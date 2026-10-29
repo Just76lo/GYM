@@ -1,12 +1,16 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { db, savePlanVersion, saveTemplate } from '../data/db'
 import { nameOf, type LibExercise } from '../data/library'
 import { validatePlan } from '../logic/review'
 import { fmt } from '../logic/progression'
 import type { Cat, DayId, Plan, PlanExercise } from '../logic/types'
-import { ExerciseSheet, useLibrary } from './ExerciseSheet'
+import { applyAlternative, restoreOriginal } from '../data/alternatives'
+import { AltSheet } from './AltSheet'
+import { ExerciseSheet } from './ExerciseSheet'
+import { useLibrary } from './useLibrary'
 import { Sheet, Stepper } from './common'
+import { Icon } from './icons'
 
 function fromLib(l: LibExercise, day: DayId): PlanExercise {
   const explosive = l.category === 'Schnellkraft/Plyometrie'
@@ -28,21 +32,23 @@ export function PlanEditor() {
   })
   const allPlans = useLiveQuery(() => db.plans.toArray()) ?? []
   const lib = useLibrary()
-  const [draft, setDraft] = useState<Plan | null>(null)
+  const [edited, setDraft] = useState<Plan | null>(null)
   const [tab, setTab] = useState<DayId | 'warm' | 'ver'>('A')
   const [edit, setEdit] = useState<{ day: DayId; i: number } | null>(null)
   const [swap, setSwap] = useState<{ day: DayId; i: number } | null>(null)
+  const [browse, setBrowse] = useState<{ day: DayId; i: number } | null>(null)
   const [adding, setAdding] = useState<DayId | null>(null)
   const [addQ, setAddQ] = useState('')
   const [msg, setMsg] = useState('')
 
-  useEffect(() => { if (active && !draft) setDraft(structuredClone(active)) }, [active, draft])
+  // Entwurf entsteht erst bei der ersten Änderung; bis dahin wird der aktive Plan gezeigt
+  const draft = edited ?? active ?? null
   const dirty = useMemo(() => !!draft && !!active && JSON.stringify({ d: draft.days, w: draft.warmup, f: draft.flags, n: draft.name }) !== JSON.stringify({ d: active.days, w: active.warmup, f: active.flags, n: active.name }), [draft, active])
   if (!draft || !settings) return <p className="muted">Lade …</p>
 
   const byEx = new Map(lib.map((l) => [l.id, l]))
   const issues = validatePlan(draft, lib)
-  const mut = (fn: (p: Plan) => void) => setDraft((d) => { const n = structuredClone(d!); fn(n); return n })
+  const mut = (fn: (p: Plan) => void) => setDraft((d) => { const n = structuredClone(d ?? active!); fn(n); return n })
   const warn = (day: DayId, e: PlanExercise) => {
     const l = byEx.get(e.exId)
     if (day !== 'B' || !l) return null
@@ -62,7 +68,7 @@ export function PlanEditor() {
           <button key={k} className={`chip ${tab === k ? 'on' : ''}`} onClick={() => setTab(k)}>{l}</button>
         ))}
       </div>
-      {issues.map((s, i) => <div className="banner" key={i}>⚠️ {s}</div>)}
+      {issues.map((s, i) => <div className="banner" key={i}><Icon name="alert" size={16} /> {s}</div>)}
 
       {(tab === 'A' || tab === 'B') && (
         <>
@@ -74,17 +80,18 @@ export function PlanEditor() {
                   <div className="grow">
                     <b>{e.name}</b>
                     <div className="muted small">{e.sets} × {e.repMin === e.repMax ? e.repMin : `${e.repMin}–${e.repMax}`}{e.unit === 's' ? ' s' : ''}{e.perSide ? '/Seite' : ''}{e.rpe ? ` · RPE ${fmt(e.rpe)}` : ''} · {e.rest} s{e.inc ? ` · +${fmt(e.inc)} kg` : ''}</div>
-                    {w && <div className="hint">⚠️ {w}</div>}
+                    {e.orig && <div className="muted small">statt {e.orig.name}</div>}
+                    {w && <div className="hint"><Icon name="alert" size={14} /> {w}</div>}
                   </div>
                   <div className="row">
-                    <button className="btn sm" disabled={i === 0} onClick={() => mut((p) => { const l = p.days[tab]; [l[i - 1], l[i]] = [l[i], l[i - 1]] })}>↑</button>
-                    <button className="btn sm" disabled={i === draft.days[tab].length - 1} onClick={() => mut((p) => { const l = p.days[tab]; [l[i + 1], l[i]] = [l[i], l[i + 1]] })}>↓</button>
+                    <button className="iconbtn" aria-label="nach oben" disabled={i === 0} onClick={() => mut((p) => { const l = p.days[tab]; [l[i - 1], l[i]] = [l[i], l[i - 1]] })}><Icon name="up" /></button>
+                    <button className="iconbtn" aria-label="nach unten" disabled={i === draft.days[tab].length - 1} onClick={() => mut((p) => { const l = p.days[tab]; [l[i + 1], l[i]] = [l[i], l[i + 1]] })}><Icon name="down" /></button>
                   </div>
                 </div>
                 <div className="row wrap" style={{ marginTop: 8 }}>
-                  <button className="btn sm" onClick={() => setEdit({ day: tab, i })}>Bearbeiten</button>
-                  <button className="btn sm" onClick={() => setSwap({ day: tab, i })}>Tauschen</button>
-                  <button className="btn sm danger" onClick={() => confirm(`„${e.name}“ entfernen?`) && mut((p) => { p.days[tab].splice(i, 1) })}>Entfernen</button>
+                  <button className="btn xs" onClick={() => setEdit({ day: tab, i })}><Icon name="edit" size={14} /> Bearbeiten</button>
+                  <button className="btn xs" onClick={() => setSwap({ day: tab, i })}><Icon name="swap" size={14} /> Tauschen</button>
+                  <button className="btn xs ghost danger" onClick={() => confirm(`„${e.name}“ entfernen?`) && mut((p) => { p.days[tab].splice(i, 1) })}>Entfernen</button>
                 </div>
               </div>
             )
@@ -98,7 +105,7 @@ export function PlanEditor() {
           {draft.warmup.map((w, i) => (
             <div className="row" key={w.id} style={{ marginBottom: 8 }}>
               <input type="text" value={w.text} onChange={(e) => mut((p) => { p.warmup[i].text = e.target.value })} />
-              <button className="btn sm danger" onClick={() => mut((p) => { p.warmup.splice(i, 1) })}>✕</button>
+              <button className="iconbtn danger" aria-label="Punkt löschen" onClick={() => mut((p) => { p.warmup.splice(i, 1) })}><Icon name="trash" size={18} /></button>
             </div>
           ))}
           <button className="btn block" onClick={() => mut((p) => { p.warmup.push({ id: `w${Date.now()}`, text: 'Neuer Punkt' }) })}>+ Punkt</button>
@@ -154,16 +161,32 @@ export function PlanEditor() {
       )}
 
       {swap && (
-        <ExerciseSheet
-          exId={draft.days[swap.day][swap.i].exId}
+        <AltSheet
+          ex={draft.days[swap.day][swap.i]}
+          allowPermanent
+          planMode
           onClose={() => setSwap(null)}
-          pickLabel="Hierher tauschen"
-          onPick={(l) => {
+          onMore={() => { setBrowse(swap); setSwap(null) }}
+          onPick={({ alt }) => {
             mut((p) => {
               const old = p.days[swap.day][swap.i]
-              p.days[swap.day][swap.i] = { ...old, exId: l.id, name: nameOf(l), pid: `${old.pid}-t${Date.now().toString(36)}` }
+              p.days[swap.day][swap.i] = alt ? applyAlternative(old, alt) : restoreOriginal(old)
             })
             setSwap(null)
+          }}
+        />
+      )}
+      {browse && (
+        <ExerciseSheet
+          exId={draft.days[browse.day][browse.i].exId}
+          onClose={() => setBrowse(null)}
+          pickLabel="Übernehmen"
+          onPick={(l) => {
+            mut((p) => {
+              const old = restoreOriginal(p.days[browse.day][browse.i])
+              p.days[browse.day][browse.i] = { ...old, exId: l.id, name: nameOf(l), orig: old, pid: `${old.pid}@${l.id}` }
+            })
+            setBrowse(null)
           }}
         />
       )}

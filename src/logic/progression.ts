@@ -64,6 +64,9 @@ export function suggestNext(rule: ExRule, last: SetLog[] | undefined, rirLow: nu
   const top = sets.every((s) => s.reps >= rule.repMax)
   const label = `Letztes Mal ${describeSets(sets).split(' @ ')[0]} @ RIR ${minRir}`
 
+  if (top && rule.inc <= 0) {
+    return { weight, reps: rule.repMax, action: 'hold', reason: `${label} → Obergrenze erreicht: schwerere Variante wählen` }
+  }
   if (top && minRir >= rirLow + 2) {
     const w = weight + 2 * rule.inc
     return { weight: w, reps: rule.repMin, action: 'double', reason: `${label} → +${fmt(2 * rule.inc)} kg (doppelter Sprung)` }

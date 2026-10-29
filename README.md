@@ -13,7 +13,8 @@ Es gehen keine Daten ins Internet (Ausnahme: YouTube-Links, die du selbst antipp
 - Verlauf pro Übung: Gewicht, geschätztes 1RM (Epley), Volumen; letzte Leistung bei jeder Übung
 - Körpergewicht mit Wochenschnitt, Ziel 80 kg und „+200 kcal“-Hinweis nach 2 Wochen ohne Zunahme
 - 12-Wochen-Periodisierung (Basis, Kraft, Power mit Kontrast-Hinweis, Deload)
-- Übungsbibliothek mit 887 Übungen (offline), Suche und Filter, Demo-Loops, YouTube-Suche, eigene Videos
+- Übungsbibliothek mit 889 Übungen (offline), Suche und Filter, Demo-Loops, YouTube-Suche, eigene Videos
+- **Ausweichübungen für jede Planübung** (3–5 kuratierte Alternativen, falls ein Gerät fehlt oder belegt ist): im Training über „Ausweichen“ nur für heute oder dauerhaft, im Plan-Editor über „Tauschen“
 - Plan-Editor mit Tauschvorschlägen, Freitags-Warnungen, Versionen und Vorlagen
 - Zyklus-Auswertung mit regelbasierten Planvorschlägen (Vorher/Nachher, einzeln oder komplett übernehmbar) und „Zusammenfassung kopieren“
 - Backup: Export und Import aller Daten als JSON
@@ -41,13 +42,19 @@ Ohne Spiel: Montag +1 Satz Beine (Nordics ausgenommen), Freitag zusätzlich Rum�
 Englische Woche: Montag Beine 2 Sätze @ RPE 6 (Gewicht −10 %), Nordics 2x3; Freitag nur Oberkörper, Prävention und 2x3 CMJ.
 Das Rumänische Kreuzheben ist eine bewusste Ausnahme von der Regel „Freitag ohne exzentrisch schwere Beinübung“, weil du es so festgelegt hast. Es steht nicht im Plan, sondern kommt nur in Wochen ohne Spiel dazu.
 
+**Ausweichübungen** – `src/data/alternatives.ts`
+Jede Planübung (inklusive des RDL in Wochen ohne Spiel) hat 3–5 kuratierte Alternativen mit deutschem Namen, kurzer Begründung und bei Bedarf eigenem Wiederholungsschema. Beispiele: Trap Bar → Kreuzheben, Sumo, Goblet Squat, Beinpresse; Nordics → Fixierung an der Sprossenwand, GHD, Beinbeuger langsam.
+- Sätze, Pausen und Kategorie bleiben gleich. Jede Variante hat ihre eigene Progression (`pid` = `<Original>@<Alternative>`), und „Zurück zum Original“ setzt den alten Verlauf fort.
+- Freitags-Alternativen sind per Test nie exzentrisch schwer und nie „Belastung Beine: hoch“. Keine Alternative braucht eine Box.
+- Nordics und Copenhagen sind Pflichtübungen: Sie lassen sich nur für eine einzelne Einheit tauschen, nie dauerhaft.
+
 **Zyklus-Auswertung** – `src/logic/review.ts`: Stagnation (3+ reguläre Einheiten ohne Bestwert), Vorschläge nach deinen Regeln, feste Regeln werden nach jeder Übernahme erzwungen (Gym nur Mo/Fr, Freitag ohne exzentrisch schwere oder hoch belastende Beinübungen, Nordics und Copenhagen bleiben im Plan).
 
 ## Übungsdatenbank und Lizenz
 
 Quelle: [free-exercise-db](https://github.com/yuhonas/free-exercise-db), lizenziert unter **The Unlicense** (gemeinfrei). Die Lizenz wurde vor dem Einbau über die GitHub-API geprüft (`spdx_id: Unlicense`). Daten und Bilder liegen lokal im Build (`src/data/exdb.json`, `public/exdb/img`), die Bilder sind auf 240 px verkleinert.
 
-Eigene Ergänzungen: Nordic Hamstring Curl, Copenhagen Plank, Trap-Bar-Sprünge, isometrische Single-Leg-Bridge, CMJ, Med-Ball-Rotationswurf, Bulgarian Split Squat, isometrischer Hamstring-Hold, Hüfte 90/90, Sprunggelenk an der Wand, Adduktoren-Heben (kein Demo-Bild).
+Eigene Ergänzungen (ohne Demo-Bild): Nordic Hamstring Curl, Copenhagen Plank, Trap-Bar-Sprünge, isometrische Single-Leg-Bridge, CMJ, Med-Ball-Rotationswurf, Bulgarian Split Squat, isometrischer Hamstring-Hold, Hüfte 90/90, Sprunggelenk an der Wand, Adduktoren-Heben, Pallof Press mit Band, Sprünge mit Kurzhanteln.
 
 Ehrliche Einschränkungen:
 - Die DB ist englisch. Deutsche Namen, Ausführungshinweise und typische Fehler gibt es von Hand für die Planübungen und die Ergänzungen. Die übrigen Übungen zeigen die englische Originalbeschreibung. Muskeln, Equipment, Kategorie und Schwierigkeit sind komplett auf Deutsch.
@@ -64,7 +71,7 @@ npm run build      # Produktions-Build nach dist/
 npm run preview    # Build lokal testen (inkl. Service Worker)
 ```
 
-Tests: `src/logic/logic.test.ts` (52 Tests für Progression, Nordics, Isometrie, Periodisierung, Wochentypen, Körpergewicht, Zyklus-Auswertung, Regeln, Bibliothek).
+Tests: 62 Unit-Tests in `src/logic/logic.test.ts` (Progression, Nordics, Isometrie, Periodisierung, Wochentypen, Körpergewicht, Zyklus-Auswertung, Regeln, Bibliothek) und `src/logic/alternatives.test.ts` (Ausweichübungen).
 
 ## Kostenlos deployen (GitHub Pages)
 

@@ -1,7 +1,9 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useRef, useState } from 'react'
 import { db, exportAll, importAll, wipeAll, today } from '../data/db'
-import { Stepper, download, go } from './common'
+import { Stepper } from './common'
+import { Icon } from './icons'
+import { download, go } from './util'
 
 export function More() {
   const s = useLiveQuery(() => db.settings.get('main'))
@@ -13,8 +15,8 @@ export function More() {
     <>
       <h1>Mehr</h1>
       <div className="card">
-        <button className="btn block" onClick={() => go('/plan')}>📝 Plan bearbeiten</button>
-        <button className="btn block" style={{ marginTop: 8 }} onClick={() => go('/review')}>📊 Zyklus-Auswertung</button>
+        <button className="navrow" onClick={() => go('/plan')}><Icon name="plan" /><span className="grow">Plan bearbeiten</span><Icon name="back" style={{ transform: 'rotate(180deg)' }} /></button>
+        <button className="navrow" onClick={() => go('/review')}><Icon name="review" /><span className="grow">Zyklus-Auswertung</span><Icon name="back" style={{ transform: 'rotate(180deg)' }} /></button>
       </div>
 
       <h2>Zyklus & Ziel</h2>
@@ -33,7 +35,7 @@ export function More() {
         <button className="btn primary block" onClick={async () => {
           download(`kraft-backup-${today()}.json`, await exportAll(vids))
           setMsg('Backup exportiert.')
-        }}>Backup exportieren (JSON)</button>
+        }}><Icon name="download" /> Backup exportieren (JSON)</button>
         <input ref={file} type="file" accept="application/json,.json" hidden onChange={async (e) => {
           const f = e.target.files?.[0]
           e.target.value = ''
@@ -45,7 +47,7 @@ export function More() {
             setMsg('Fehler: ' + (err as Error).message)
           }
         }} />
-        <button className="btn block" style={{ marginTop: 8 }} onClick={() => file.current?.click()}>Backup importieren</button>
+        <button className="btn block" style={{ marginTop: 8 }} onClick={() => file.current?.click()}><Icon name="upload" /> Backup importieren</button>
         {msg && <div className="banner ok" style={{ marginTop: 8 }}>{msg}</div>}
       </div>
 

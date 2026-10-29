@@ -4,7 +4,8 @@ import { activeSessionFor, createSession, db, setWeekType, today } from '../data
 import { KCAL_HINT, noGainTwoWeeks } from '../logic/bodyweight'
 import { BLOCKS, CYCLE_WEEKS, WEEK_PLAN, blockForWeek, isoDate, parseDate, weekOfCycle, weekdayIndex } from '../logic/periodization'
 import type { DayId, WeekType } from '../logic/types'
-import { go, unlockAudio } from './common'
+import { Icon } from './icons'
+import { go, unlockAudio } from './util'
 
 const WT: { id: WeekType; label: string }[] = [
   { id: 'normal', label: 'Normal' },
@@ -143,7 +144,7 @@ export function Today() {
             <div key={d.label} className={`day ${i === idx ? 'today' : ''} ${d.kind.startsWith('gym') ? 'gym' : ''} ${done ? 'done' : ''}`}>
               <b>{d.label}</b>
               <span className="muted">{d.title}</span>
-              {done && <div>✓</div>}
+              {done && <Icon name="check" size={14} />}
             </div>
           )
         })}

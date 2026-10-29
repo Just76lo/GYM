@@ -36,6 +36,8 @@ export interface PlanExercise {
   loadFrom?: { pid: string; pct: number }
   /** Power-Block: nach jedem Satz Kontrast-Hinweis */
   contrast?: boolean
+  /** Ursprüngliche Planübung, falls gegen eine Alternative getauscht */
+  orig?: Omit<PlanExercise, 'orig'>
 }
 
 export interface WarmupItem {
