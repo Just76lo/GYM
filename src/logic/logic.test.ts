@@ -141,7 +141,9 @@ const log = (pid: string, weight: number, reps: number, rir: number, over: Parti
 }
 
 const ctx = (over: Partial<BuildCtx> = {}): BuildCtx => ({
-  day: 'A', block: 'basis', weekType: 'normal' as WeekType, heavyLegs: false, history: {}, states: {}, ...over,
+  day: 'A', block: 'basis', weekType: 'normal' as WeekType, heavyLegs: false, history: {}, states: {},
+  // diese Tests prüfen die Originalübungen (Trap-Bar, Medball), daher Schalter AN
+  equipment: { trapBar: true, medball: true }, ...over,
 })
 
 describe('Einheit aufbauen', () => {

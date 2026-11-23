@@ -6,6 +6,7 @@ import { Library } from './ui/Library'
 import { More } from './ui/More'
 import { PlanEditor } from './ui/PlanEditor'
 import { Review } from './ui/Review'
+import { RunLog } from './ui/RunLog'
 import { Today } from './ui/Today'
 import { Workout } from './ui/Workout'
 import { Icon, type IconName } from './ui/icons'
@@ -34,7 +35,9 @@ export default function App() {
 
   const m = hash.match(/^\/workout\/(\d+)/)
   let page
+  const r = hash.match(/^\/run\/(\d+)/)
   if (m) page = <Workout key={m[1]} id={Number(m[1])} />
+  else if (r) page = <RunLog key={r[1]} id={Number(r[1])} />
   else if (hash === '/history') page = <History />
   else if (hash === '/body') page = <Body />
   else if (hash === '/library') page = <Library />
@@ -43,7 +46,7 @@ export default function App() {
   else if (hash === '/review') page = <Review />
   else page = <Today />
 
-  const active = (p: string) => (p === '/' ? ['/', ''].includes(hash) || !!m : hash === p || (p === '/more' && ['/plan', '/review'].includes(hash)))
+  const active = (p: string) => (p === '/' ? ['/', ''].includes(hash) || !!m || !!r : hash === p || (p === '/more' && ['/plan', '/review'].includes(hash)))
 
   return (
     <div className="app">

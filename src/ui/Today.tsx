@@ -1,76 +1,162 @@
-import { useLiveQuery } from 'dexie-react-hooks'
 import { useState } from 'react'
-import { activeSessionFor, createSession, db, setWeekType, today } from '../data/db'
+import { activeSessionFor, createRun, createSession, db, setDayKind, today } from '../data/db'
 import { KCAL_HINT, noGainTwoWeeks } from '../logic/bodyweight'
-import { BLOCKS, CYCLE_WEEKS, WEEK_PLAN, blockForWeek, isoDate, parseDate, weekOfCycle, weekdayIndex } from '../logic/periodization'
-import type { DayId, WeekType } from '../logic/types'
+import {
+  BLOCKS, CYCLE_WEEKS, WINTER_BLOCKS, WINTER_WEEKS, blockForWeek, parseDate, weekOfCycle, winterBlockForWeek, winterWeekOf,
+} from '../logic/periodization'
+import {
+  GYM_ROTATION, gymDayOf, gymKindOf, gymWarnings, kindLabel, mdInfo, nextDueGym, type DayKind,
+} from '../logic/schedule'
+import type { DayId, Phase } from '../logic/types'
+import { useLiveQuery } from 'dexie-react-hooks'
 import { Icon } from './icons'
 import { go, unlockAudio } from './util'
+import { useSchedule } from './useSchedule'
+import { WeekPlan } from './WeekPlan'
 
-const WT: { id: WeekType; label: string }[] = [
-  { id: 'normal', label: 'Normal' },
-  { id: 'noGame', label: 'Ohne Spiel' },
-  { id: 'english', label: 'Englische Woche' },
+const PHASES: { id: Phase; label: string }[] = [
+  { id: 'season', label: 'Saison' },
+  { id: 'winter', label: 'Winterpause' },
 ]
 
+const DAY_TEXT: Partial<Record<DayKind, string>> = {
+  football: 'Mannschaftstraining. Heute kein Gym.',
+  recovery: 'Regeneration: locker bewegen, mobilisieren, schlafen.',
+  rest: 'Pause oder leichte Aktivierung.',
+  game: 'Spieltag – viel Erfolg!',
+}
+
 export function Today() {
-  const settings = useLiveQuery(() => db.settings.get('main'))
-  const sessions = useLiveQuery(() => db.sessions.toArray()) ?? []
+  const state = useSchedule()
   const bw = useLiveQuery(() => db.bodyweights.toArray()) ?? []
-  const wk = useLiveQuery(async () => {
-    const s = await db.settings.get('main')
-    return s ? db.weeks.where('cycleId').equals(s.cycleId).toArray() : []
-  }) ?? []
   const [heavy, setHeavy] = useState(false)
   const [busy, setBusy] = useState(false)
-  if (!settings) return <p className="muted">Lade …</p>
+  if (!state) return <p className="muted">Lade …</p>
 
+  const { settings, getKind, sessions, runs } = state
+  const phase = settings.phase
   const t = today()
-  const week = weekOfCycle(settings.startDate, t)
-  const wkClamped = Math.min(CYCLE_WEEKS, Math.max(1, week))
-  const block = blockForWeek(wkClamped)
-  const weekType = wk.find((w) => w.week === wkClamped)?.type ?? 'normal'
-  const idx = weekdayIndex(t)
-  const todayPlan = WEEK_PLAN[idx]
-  const dayId: DayId | null = idx === 0 ? 'A' : idx === 4 ? 'B' : null
-  const finishedCycle = week > CYCLE_WEEKS
-  const notStarted = week < 1
+  const kind = getKind(t)
+  const gymDay = gymDayOf(kind)
 
-  // Datum der Wochentage der aktuellen Kalenderwoche
-  const monday = parseDate(t)
-  monday.setDate(monday.getDate() - idx)
-  const dates = WEEK_PLAN.map((_, i) => {
-    const d = new Date(monday)
-    d.setDate(d.getDate() + i)
-    return isoDate(d)
-  })
+  // Season: 12-Wochen-Zyklus, Winterpause: 9 Wochen ab Startdatum
+  const cycleWeek = weekOfCycle(settings.startDate, t)
+  const cycleClamped = Math.min(CYCLE_WEEKS, Math.max(1, cycleWeek))
+  const seasonBlock = blockForWeek(cycleClamped)
+  const winterWeek = winterWeekOf(settings.winterStart, t)
+  const winterBlock = winterBlockForWeek(winterWeek)
+  const finishedCycle = phase === 'season' && cycleWeek > CYCLE_WEEKS
+  const notStarted = phase === 'season' ? cycleWeek < 1 : winterWeek < 1
+  const winterOver = phase === 'winter' && winterWeek > WINTER_WEEKS
+  // Saison-Nutzer: Winterpause hat begonnen
+  const winterRunning = phase === 'season' && winterWeek >= 1 && winterWeek <= WINTER_WEEKS
+
+  const setPhase = (p: Phase) => {
+    // Die Winterpause beginnt erst am Startdatum: früheres Umschalten nur nach Bestätigung
+    if (p === 'winter' && t < settings.winterStart && !confirm(`Die Winterpause beginnt erst am ${parseDate(settings.winterStart).toLocaleDateString('de-DE')}. Trotzdem schon wechseln?`)) return
+    return db.settings.update('main', { phase: p })
+  }
+  const sessionToday = (day: DayId) => sessions.find((s) => s.cycleId === settings.cycleId && s.date === t && s.day === day)
+  const runToday = runs.find((r) => r.date === t)
+  const startLabel = (day: DayId) => {
+    const ex = sessionToday(day)
+    return ex ? (ex.finished ? 'Einheit ansehen' : 'Einheit fortsetzen') : `Gym ${day} starten`
+  }
+  const warningsToday = gymWarnings(t, getKind)
+  const suggestion = nextDueGym(phase, sessions.filter((s) => s.finished))
+  const md = mdInfo(t, getKind).label
 
   const start = async (day: DayId) => {
     if (busy) return
+    const existing = await activeSessionFor(settings.cycleId, t, day)
+    if (existing) return go(`/workout/${existing.id}`)
+    const w = gymWarnings(t, getKind)
+    // Warnungen sind nur Hinweise: einmal bestätigen, dann geht es weiter
+    if (w.length && !confirm(`${w.join('\n\n')}\n\nTrotzdem trainieren?`)) return
     setBusy(true)
     unlockAudio()
     try {
-      const existing = await activeSessionFor(settings.cycleId, t, day)
-      if (existing) return go(`/workout/${existing.id}`)
-      const s = await createSession({ date: t, day, heavyLegs: day === 'A' && heavy, weekType })
+      const s = await createSession({ date: t, day, heavyLegs: phase === 'season' && day === 'A' && heavy })
       go(`/workout/${s.id}`)
     } finally {
       setBusy(false)
     }
   }
-  const existingToday = (day: DayId) => sessions.find((s) => s.cycleId === settings.cycleId && s.date === t && s.day === day)
-  const btn = (day: DayId) => {
-    const ex = existingToday(day)
-    return ex ? (ex.finished ? 'Einheit ansehen' : 'Einheit fortsetzen') : `Gym ${day} starten`
+
+  /** „Heute trainieren“: nächste fällige Einheit eintragen und starten */
+  const trainToday = async () => {
+    await setDayKind(t, gymKindOf(suggestion))
+    // Warnungen kommen aus dem neu eingetragenen Tag; getKind kennt ihn erst nach dem Neuladen
+    const ex = await activeSessionFor(settings.cycleId, t, suggestion)
+    if (ex) return go(`/workout/${ex.id}`)
+    const next = (d: string) => (d === t ? gymKindOf(suggestion) : getKind(d))
+    const w = gymWarnings(t, next)
+    if (w.length && !confirm(`${w.join('\n\n')}\n\nTrotzdem trainieren?`)) return
+    setBusy(true)
+    unlockAudio()
+    try {
+      const s = await createSession({ date: t, day: suggestion, heavyLegs: false })
+      go(`/workout/${s.id}`)
+    } finally {
+      setBusy(false)
+    }
   }
+
+  const startRun = async () => {
+    const r = await createRun(t, kind === 'runSprint' ? 'sprints' : 'easy')
+    go(`/run/${r.id}`)
+  }
+
   const showKcal = noGainTwoWeeks(bw, settings.goalKg)
+  const blocked = busy || finishedCycle || notStarted
 
   return (
     <>
       <h1>Heute</h1>
-      <p className="muted">{parseDate(t).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+      <p className="muted">{parseDate(t).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}{md ? ` · ${md}` : ''}</p>
 
-      {finishedCycle ? (
+      <div className="chips" style={{ marginBottom: 8 }} role="group" aria-label="Phase">
+        {PHASES.map((p) => (
+          <button key={p.id} className={`chip ${phase === p.id ? 'on' : ''}`} aria-pressed={phase === p.id} onClick={() => void setPhase(p.id)}>{p.label}</button>
+        ))}
+      </div>
+
+      {winterRunning && (
+        <div className="banner info">
+          Die Winterpause hat begonnen (Woche {winterWeek} von {WINTER_WEEKS}).
+          <div style={{ marginTop: 8 }}><button className="btn sm" onClick={() => void setPhase('winter')}>Zur Winterpause wechseln</button></div>
+        </div>
+      )}
+      {winterOver && (
+        <div className="banner info">
+          Mannschaftstraining startet? In Phase Saison wechseln.
+          <div style={{ marginTop: 8 }}><button className="btn sm" onClick={() => void setPhase('season')}>Zu Saison wechseln</button></div>
+        </div>
+      )}
+
+      {phase === 'winter' ? (
+        notStarted ? (
+          <div className="banner info">Die Winterpause beginnt am {parseDate(settings.winterStart).toLocaleDateString('de-DE')} (unter „Mehr“ änderbar).</div>
+        ) : !winterOver && (
+          <div className="card">
+            <div className="row spread">
+              <div><b>Winterpause · Woche {winterWeek} von {WINTER_WEEKS}</b><div className="muted small">{winterBlock.label} · Ziel-RIR {winterBlock.rirText}</div></div>
+              <span className="badge ok">{winterBlock.label}</span>
+            </div>
+            <div className="row" style={{ marginTop: 8, gap: 3 }}>
+              {WINTER_BLOCKS.map((b) => (
+                <div key={b.id} style={{ flex: b.weeks[1] - b.weeks[0] + 1, height: 6, borderRadius: 3, background: b.id === winterBlock.id ? 'var(--accent)' : 'var(--line)' }} />
+              ))}
+            </div>
+            <p className="muted small" style={{ marginBottom: 0 }}>
+              {winterBlock.id === 'wbuild' && 'Obere Wiederholungsbereiche, Ziel-RIR 2.'}
+              {winterBlock.id === 'wlight' && 'Leichte Woche: Sätze halbiert, Ziel-RIR 4. Ausgelassene Einheiten sind kein Rückschritt.'}
+              {winterBlock.id === 'wstrength' && 'Kreuzheben, Kniebeuge und Bankdrücken mit 4–5 Wdh, Ziel-RIR 1–2.'}
+              {winterBlock.id === 'wtrans' && 'Übergang: 1 Satz weniger pro Übung, Ziel-RIR 3.'}
+            </p>
+          </div>
+        )
+      ) : finishedCycle ? (
         <div className="banner ok">
           Zyklus abgeschlossen (12 Wochen). Werte ihn aus und starte einen neuen Zyklus.
           <div style={{ marginTop: 8 }}><button className="btn primary" onClick={() => go('/review')}>Zyklus-Auswertung</button></div>
@@ -80,77 +166,67 @@ export function Today() {
       ) : (
         <div className="card">
           <div className="row spread">
-            <div><b>Woche {week} von {CYCLE_WEEKS}</b><div className="muted small">Block: {block.label} · Ziel-RIR {block.rirText}</div></div>
-            <span className="badge ok">{block.label}</span>
+            <div><b>Woche {cycleWeek} von {CYCLE_WEEKS}</b><div className="muted small">Block: {seasonBlock.label} · Ziel-RIR {seasonBlock.rirText}</div></div>
+            <span className="badge ok">{seasonBlock.label}</span>
           </div>
           <div className="row" style={{ marginTop: 8, gap: 3 }}>
             {BLOCKS.map((b) => (
-              <div key={b.id} style={{ flex: b.weeks[1] - b.weeks[0] + 1, height: 6, borderRadius: 3, background: b.id === block.id ? 'var(--accent)' : 'var(--line)' }} />
+              <div key={b.id} style={{ flex: b.weeks[1] - b.weeks[0] + 1, height: 6, borderRadius: 3, background: b.id === seasonBlock.id ? 'var(--accent)' : 'var(--line)' }} />
             ))}
           </div>
         </div>
       )}
 
-      <h2>Wochentyp (Woche {wkClamped})</h2>
-      <div className="chips">
-        {WT.map((w) => (
-          <button key={w.id} className={`chip ${weekType === w.id ? 'on' : ''}`} onClick={() => setWeekType(settings.cycleId, wkClamped, w.id)}>{w.label}</button>
-        ))}
-      </div>
-      <p className="muted small">
-        {weekType === 'noGame' && 'Montag +1 Satz Beine, Freitag zusätzlich Rumänisches Kreuzheben 3x6.'}
-        {weekType === 'english' && 'Montag Beine nur 2 Sätze RPE 6, Nordics 2x3. Freitag nur Oberkörper, Prävention und 2x3 CMJ.'}
-        {weekType === 'normal' && 'Plan unverändert.'}
-      </p>
-
       <div className="card hl">
-        <div className="row spread">
-          <div>
-            <div className="muted small">{todayPlan.label}</div>
-            <h3>{todayPlan.title}</h3>
-          </div>
-        </div>
-        {dayId ? (
+        <div className="muted small">Heute geplant</div>
+        <h3>{kindLabel(kind)}</h3>
+        {gymDay ? (
           <>
-            {dayId === 'A' && !existingToday('A') && (
+            {warningsToday.map((w) => <div className="hint" key={w}><Icon name="alert" size={14} /> {w}</div>)}
+            {phase === 'season' && gymDay === 'A' && !sessionToday('A') && (
               <label className="check">
                 <input type="checkbox" checked={heavy} onChange={(e) => setHeavy(e.target.checked)} />
                 <span>90 min gespielt / Beine schwer<br /><span className="muted small">Beine: RPE 6, 1 Satz weniger</span></span>
               </label>
             )}
-            <button className="btn primary block" disabled={busy || finishedCycle || notStarted} onClick={() => start(dayId)}>{btn(dayId)}</button>
+            <button className="btn primary block" disabled={blocked} onClick={() => void start(gymDay)}>{startLabel(gymDay)}</button>
           </>
-        ) : (
+        ) : kind === 'runSprint' || kind === 'runEasy' ? (
           <>
             <p className="muted">
-              {todayPlan.kind === 'football' && 'Mannschaftstraining. Heute kein Gym.'}
-              {todayPlan.kind === 'recovery' && 'Regeneration: locker bewegen, mobilisieren, schlafen.'}
-              {todayPlan.kind === 'rest' && 'Pause oder leichte Aktivierung.'}
-              {todayPlan.kind === 'game' && 'Spieltag – viel Erfolg!'}
+              {kind === 'runSprint' ? 'Sprints 6–8 × 20–30 m mit voller Pause, dann 4 × 4 min zügig mit 3 min locker.' : 'Lockeres Laufen, 20–30 min.'}
             </p>
-            <div className="row wrap">
-              <button className="btn sm" disabled={finishedCycle || notStarted} onClick={() => start('A')}>Gym A nachholen</button>
-              <button className="btn sm" disabled={finishedCycle || notStarted} onClick={() => start('B')}>Gym B nachholen</button>
-            </div>
+            <button className="btn primary block" onClick={() => void startRun()}>
+              {runToday ? (runToday.finished ? 'Lauf ansehen' : 'Lauf fortsetzen') : 'Lauf starten'}
+            </button>
           </>
+        ) : (
+          <p className="muted">{DAY_TEXT[kind]}</p>
         )}
       </div>
 
-      <h2>Wochenübersicht</h2>
-      <div className="week">
-        {WEEK_PLAN.map((d, i) => {
-          const done = sessions.some((s) => s.date === dates[i] && s.finished)
-          return (
-            <div key={d.label} className={`day ${i === idx ? 'today' : ''} ${d.kind.startsWith('gym') ? 'gym' : ''} ${done ? 'done' : ''}`}>
-              <b>{d.label}</b>
-              <span className="muted">{d.title}</span>
-              {done && <Icon name="check" size={14} />}
+      <div className="card">
+        <div className="row spread">
+          <div>
+            <b>Heute trainieren</b>
+            <div className="muted small">
+              Fällig: Gym {suggestion} (Reihenfolge {GYM_ROTATION[phase].join(' → ')}). Wird für heute eingetragen.
             </div>
-          )
-        })}
+          </div>
+          <button className="btn sm primary" disabled={blocked} onClick={() => void trainToday()}>Gym {suggestion}</button>
+        </div>
+        {!gymDay && (
+          <div className="row wrap" style={{ marginTop: 8 }}>
+            {GYM_ROTATION[phase].filter((d) => d !== suggestion).map((d) => (
+              <button key={d} className="btn sm" disabled={blocked} onClick={() => void start(d)}>Gym {d} nachholen</button>
+            ))}
+          </div>
+        )}
       </div>
 
-      {showKcal && <div className="banner">{KCAL_HINT}</div>}
+      <WeekPlan state={state} today={t} />
+
+      {showKcal && <div className="banner" style={{ marginTop: 12 }}>{KCAL_HINT}</div>}
     </>
   )
 }

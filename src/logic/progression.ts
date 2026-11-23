@@ -199,3 +199,46 @@ export function explosiveStats(logs: ExerciseLog[]): ExplosiveStats {
   }
   return { best: Math.max(...vals), last: vals[vals.length - 1], trend }
 }
+
+/* ---------------- Speed-Kniebeuge ---------------- */
+
+const DAY_MS = 86_400_000
+const daysBetween = (a: string, b: string): number => {
+  const [ya, ma, da] = a.split('-').map(Number)
+  const [yb, mb, db] = b.split('-').map(Number)
+  return Math.round((new Date(yb, mb - 1, db).getTime() - new Date(ya, ma - 1, da).getTime()) / DAY_MS)
+}
+
+export interface SpeedResult {
+  weight: number
+  reason: string
+}
+
+/**
+ * Speed-Kniebeuge: keine RIR-Progression. Gleiches Gewicht, alle 2 Wochen +inc,
+ * aber nur, wenn das Tempo in allen Einheiten mit diesem Gewicht gut geblieben ist.
+ * `start` = 55 % des Kniebeugen-1RM (0, wenn unbekannt).
+ */
+export function nextSpeedWeight(logs: ExerciseLog[], start: number, inc: number, date?: string): SpeedResult {
+  const done = logs.filter((l) => doneSets(l.sets).length > 0)
+  if (!done.length) {
+    return {
+      weight: start,
+      reason: start > 0
+        ? `Start: 55 % des Kniebeugen-1RM = ${fmt(start)} kg (keine RIR-Progression)`
+        : 'Noch keine Daten – 50–60 % des Kniebeugen-1RM wählen (1RM unter „Mehr“ eintragen)',
+    }
+  }
+  const last = done[done.length - 1]
+  const w = topWeight(last)
+  let i = done.length - 1
+  while (i >= 0 && topWeight(done[i]) === w) i--
+  const streak = done.slice(i + 1)
+  const first = streak[0]
+  const good = streak.every((l) => l.tempoGood !== false)
+  const elapsed = first.date && (date ?? last.date) ? daysBetween(first.date, (date ?? last.date)!) : null
+  const due = elapsed !== null ? elapsed >= 14 : streak.length >= 2
+  if (!good) return { weight: w, reason: `Tempo war zuletzt nicht gut → gleiches Gewicht ${fmt(w)} kg` }
+  if (due && inc > 0) return { weight: w + inc, reason: `Tempo blieb gut, ${elapsed ?? streak.length * 7} Tage auf ${fmt(w)} kg → +${fmt(inc)} kg` }
+  return { weight: w, reason: `Gleiches Gewicht ${fmt(w)} kg bis 2 Wochen vorbei sind (nur bei gutem Tempo +${fmt(inc)} kg)` }
+}

@@ -1,12 +1,16 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useRef, useState } from 'react'
 import { db, exportAll, importAll, wipeAll, today } from '../data/db'
+import { normalizeSettings } from '../data/migrate'
+import { WINTER_WEEKS } from '../logic/periodization'
+import { addDays } from '../logic/schedule'
 import { Stepper } from './common'
 import { Icon } from './icons'
 import { download, go } from './util'
 
 export function More() {
-  const s = useLiveQuery(() => db.settings.get('main'))
+  const raw = useLiveQuery(() => db.settings.get('main'))
+  const s = raw && normalizeSettings(raw)
   const [vids, setVids] = useState(false)
   const [msg, setMsg] = useState('')
   const file = useRef<HTMLInputElement>(null)
@@ -17,6 +21,34 @@ export function More() {
       <div className="card">
         <button className="navrow" onClick={() => go('/plan')}><Icon name="plan" /><span className="grow">Plan bearbeiten</span><Icon name="back" style={{ transform: 'rotate(180deg)' }} /></button>
         <button className="navrow" onClick={() => go('/review')}><Icon name="review" /><span className="grow">Zyklus-Auswertung</span><Icon name="back" style={{ transform: 'rotate(180deg)' }} /></button>
+      </div>
+
+      <h2>Phase & Geräte</h2>
+      <div className="card">
+        <label>Phase</label>
+        <div className="chips" role="group" aria-label="Phase">
+          {([['season', 'Saison (Gym A + B)'], ['winter', 'Winterpause (Gym A + B + C)']] as const).map(([k, l]) => (
+            <button key={k} className={`chip ${s.phase === k ? 'on' : ''}`} aria-pressed={s.phase === k} onClick={() => {
+              if (k === 'winter' && today() < s.winterStart && !confirm(`Die Winterpause beginnt erst am ${s.winterStart.split('-').reverse().join('.')}. Trotzdem schon wechseln?`)) return
+              void db.settings.update('main', { phase: k })
+            }}>{l}</button>
+          ))}
+        </div>
+        <p className="muted small">Gleiche Übung = gleicher Verlauf, auch über die Phasen hinweg.</p>
+        <label>Winterpause beginnt (Woche 1, ein Montag)</label>
+        <input type="date" value={s.winterStart} onChange={(e) => e.target.value && db.settings.update('main', { winterStart: e.target.value })} />
+        <p className="muted small">{WINTER_WEEKS} Wochen, endet am {addDays(s.winterStart, WINTER_WEEKS * 7 - 1).split('-').reverse().join('.')}.</p>
+        <label className="check">
+          <input type="checkbox" checked={s.trapBar} onChange={(e) => db.settings.update('main', { trapBar: e.target.checked })} />
+          <span style={{ color: 'var(--text)' }}>Trap-Bar verfügbar<br /><span className="muted small">Aus: Kreuzheben konventionell und Speed-Kniebeuge. An: Trap-Bar-Kreuzheben und Trap-Bar-Sprünge.</span></span>
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={s.medball} onChange={(e) => db.settings.update('main', { medball: e.target.checked })} />
+          <span style={{ color: 'var(--text)' }}>Medizinball verfügbar<br /><span className="muted small">Aus: Kabel-Holzhacker explosiv. An: Med-Ball-Rotationswurf.</span></span>
+        </label>
+        <div style={{ marginTop: 12 }}>
+          <Stepper label="Kniebeugen-1RM (kg) für die Speed-Kniebeuge, 0 = aus dem Verlauf" value={s.squat1rm ?? 0} step={2.5} min={0} max={400} onChange={(v) => db.settings.update('main', { squat1rm: v || undefined })} />
+        </div>
       </div>
 
       <h2>Zyklus & Ziel</h2>

@@ -19,6 +19,15 @@ Es gehen keine Daten ins Internet (Ausnahme: YouTube-Links, die du selbst antipp
 - Zyklus-Auswertung mit regelbasierten Planvorschlägen (Vorher/Nachher, einzeln oder komplett übernehmbar) und „Zusammenfassung kopieren“
 - Backup: Export und Import aller Daten als JSON
 
+## Update: Phasen, freier Wochenplan, Winterpause
+
+- **Phasen** „Saison“ (Gym A + B) und „Winterpause“ (Gym A + B + C, 9 Wochen ab 30.11.2026) sind jederzeit umschaltbar (Heute oder Mehr). Gleiche Übung = gleicher Verlauf.
+- **Winterpause**: Woche 1–3 Aufbau (obere Wdh-Bereiche, RIR 2), Woche 4 leicht (Sätze halbiert, RIR 4), Woche 5–8 Kraft (4–5 Wdh bei Kreuzheben/Kniebeuge/Bankdrücken, RIR 1–2), Woche 9 Übergang (−1 Satz, RIR 3). Keine Spiel-Abschläge.
+- **Geräte**: ohne Trap-Bar → Kreuzheben konventionell und Speed-Kniebeuge (5×3, 50–60 % des Kniebeugen-1RM, Tempo statt RIR); ohne Medball → Kabel-Holzhacker explosiv. Schalter unter Mehr. Gespeicherte Pläne bleiben unverändert, der Austausch passiert beim Training.
+- **Wochenplan** (Heute): jeder Tag frei (Gym A/B/C, Fußball, Spiel, Laufen, Regeneration, Pause), per Antippen oder Drag & Drop, Vorlagen, Standardwoche je Phase speicherbar. Spielabstand (MD±X) wird über Wochengrenzen berechnet und steuert die Einheit; Warnungen sind bestätigbare Hinweise.
+- **„Heute trainieren“** trägt die nächste fällige Einheit ein (Winter A → C → B, Saison A → B).
+- **Laufen**: Sprints + Intervalle zum Abhaken, dazu Art, Dauer und Gefühl.
+
 ## Logik im Detail
 
 **Progression (Double Progression mit RIR)** – `src/logic/progression.ts`

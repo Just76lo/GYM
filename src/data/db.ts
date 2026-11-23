@@ -1,20 +1,16 @@
 import Dexie, { type Table } from 'dexie'
 import type { BwEntry } from '../logic/bodyweight'
-import { blockForWeek, isoDate, weekOfCycle } from '../logic/periodization'
+import { blockForWeek, isoDate, weekOfCycle, winterBlockForWeek, winterWeekOf, WINTER_WEEKS } from '../logic/periodization'
+import { addDays, gymRules, kindGetter, weekDates, weekTypeFor, type DayKind, type ScheduleCtx } from '../logic/schedule'
 import { nextNordicLevel } from '../logic/progression'
 import { buildSession } from '../logic/session'
 import { emptyComplaints } from '../logic/types'
-import type { DayId, ExState, ExerciseLog, Plan, Session, WeekType } from '../logic/types'
+import type { DayId, ExState, ExerciseLog, Phase, Plan, Session, WeekType } from '../logic/types'
 import { baseLibrary, type LibExercise } from './library'
-import { makeDefaultPlan } from './plan'
+import { normalizeSettings, type Settings } from './migrate'
+import { makeDefaultPlan, normalizePlan } from './plan'
 
-export interface Settings {
-  key: 'main'
-  startDate: string
-  activePlanId: number
-  cycleId: number
-  goalKg: number
-}
+export type { Settings }
 
 export interface Cycle {
   id?: number
@@ -39,6 +35,28 @@ export interface VideoRow {
   createdAt: string
 }
 
+/** Einzeln überschriebener Tag im Wochenplan */
+export interface ScheduleRow {
+  date: string
+  kind: DayKind
+}
+
+/** Laufeinheit (Sprints + Intervalle oder lockeres Laufen) */
+export interface RunRow {
+  id?: number
+  date: string
+  template: 'sprints' | 'easy'
+  /** abgehakte Sprints / Intervalle */
+  sprints: boolean[]
+  intervals: boolean[]
+  type: string
+  minutes: number
+  /** Gefühl 1–10 */
+  feel: number
+  notes: string
+  finished: boolean
+}
+
 export interface OverrideRow {
   exId: string
   patch: Partial<LibExercise>
@@ -55,6 +73,8 @@ class KDb extends Dexie {
   videos!: Table<VideoRow, number>
   states!: Table<ExState, string>
   overrides!: Table<OverrideRow, string>
+  schedule!: Table<ScheduleRow, string>
+  runs!: Table<RunRow, number>
 
   constructor() {
     super('kraft-app')
@@ -70,6 +90,14 @@ class KDb extends Dexie {
       states: 'pid',
       overrides: 'exId',
     })
+    // Version 2: Phasen, Wochenplan, Läufe. Bestehende Tabellen und Zeilen bleiben unverändert,
+    // Einstellungen und Pläne werden nur um neue Felder ergänzt.
+    this.version(2)
+      .stores({ schedule: 'date', runs: '++id, date' })
+      .upgrade(async (tx) => {
+        await tx.table('settings').toCollection().modify((s) => { Object.assign(s, normalizeSettings(s)) })
+        await tx.table('plans').toCollection().modify((p) => { Object.assign(p, normalizePlan(p)) })
+      })
   }
 }
 
@@ -88,7 +116,7 @@ export async function ensureInit(): Promise<void> {
     monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7))
     const startDate = isoDate(monday)
     const cycleId = (await db.cycles.add({ startDate, planId, createdAt: t })) as number
-    await db.settings.add({ key: 'main', startDate, activePlanId: planId, cycleId, goalKg: 80 })
+    await db.settings.add(normalizeSettings({ key: 'main', startDate, activePlanId: planId, cycleId, goalKg: 80 }))
   })
 }
 
@@ -112,7 +140,7 @@ export async function historyByPid(): Promise<Record<string, ExerciseLog[]>> {
   const all = (await db.sessions.toArray()).filter((s) => s.finished).sort((a, b) => a.date.localeCompare(b.date) || (a.id ?? 0) - (b.id ?? 0))
   const out: Record<string, ExerciseLog[]> = {}
   for (const s of all) {
-    for (const e of s.entries) if (e.sets.some((x) => x.done)) (out[e.pid] ??= []).push(e)
+    for (const e of s.entries) if (e.sets.some((x) => x.done)) (out[e.pid] ??= []).push({ ...e, date: e.date ?? s.date })
   }
   return out
 }
@@ -126,28 +154,89 @@ export async function activeSessionFor(cycleId: number, date: string, day: DayId
   return list.find((s) => s.date === date && s.day === day)
 }
 
-export async function createSession(opts: {
-  date: string
-  day: DayId
-  heavyLegs: boolean
-  weekType: WeekType
-}): Promise<Session> {
-  const s = (await db.settings.get('main'))!
-  const plan = (await db.plans.get(s.activePlanId))!
-  const week = Math.min(12, Math.max(1, weekOfCycle(s.startDate, opts.date)))
-  const block = blockForWeek(week).id
-  const [history, states] = await Promise.all([historyByPid(), statesMap()])
+/* ---------------- Wochenplan ---------------- */
+
+export async function loadScheduleCtx(): Promise<ScheduleCtx> {
+  const [s, rows] = await Promise.all([db.settings.get('main'), db.schedule.toArray()])
+  const st = normalizeSettings(s!)
+  return {
+    phase: st.phase,
+    winterStart: st.winterStart,
+    defaults: st.defaultWeeks,
+    overrides: new Map(rows.map((r) => [r.date, r.kind])),
+  }
+}
+
+export const setDayKind = (date: string, kind: DayKind) => db.schedule.put({ date, kind })
+export const resetDay = (date: string) => db.schedule.delete(date)
+
+/** Trägt eine ganze Woche (Mo–So ab `monday`) ein, z. B. aus einer Vorlage */
+export async function applyWeek(monday: string, kinds: DayKind[]): Promise<void> {
+  await db.schedule.bulkPut(kinds.map((kind, i) => ({ date: addDays(monday, i), kind })))
+}
+
+/** Verwirft alle Einzeländerungen der Woche, es gilt wieder die Standardwoche */
+export async function resetWeek(date: string): Promise<void> {
+  await db.schedule.bulkDelete(weekDates(date))
+}
+
+/** Speichert die Wochenansicht als Standardwoche der Phase */
+export async function saveDefaultWeek(phase: Phase, kinds: DayKind[]): Promise<void> {
+  const s = normalizeSettings((await db.settings.get('main'))!)
+  await db.settings.update('main', { defaultWeeks: { ...s.defaultWeeks, [phase]: kinds } })
+}
+
+export const RUN_SPRINTS = 8
+export const RUN_INTERVALS = 4
+
+/** Neue Laufeinheit; bei vorhandener Einheit am selben Tag wird diese zurückgegeben */
+export async function createRun(date: string, template: 'sprints' | 'easy'): Promise<RunRow> {
+  const existing = (await db.runs.where('date').equals(date).toArray())[0]
+  if (existing) return existing
+  const run: RunRow = {
+    date, template, sprints: Array(RUN_SPRINTS).fill(false), intervals: Array(RUN_INTERVALS).fill(false),
+    type: template === 'sprints' ? 'Sprints + Intervalle' : 'Lockeres Laufen', minutes: template === 'sprints' ? 40 : 25,
+    feel: 6, notes: '', finished: false,
+  }
+  run.id = (await db.runs.add(run)) as number
+  return run
+}
+
+export async function createSession(opts: { date: string; day: DayId; heavyLegs: boolean }): Promise<Session> {
+  const s = normalizeSettings((await db.settings.get('main'))!)
+  const plan = normalizePlan((await db.plans.get(s.activePlanId))!)
+  const phase = s.phase
+  const [history, states, sctx, all] = await Promise.all([historyByPid(), statesMap(), loadScheduleCtx(), db.sessions.toArray()])
+  const getKind = kindGetter(sctx)
+  const prev = addDays(opts.date, -1)
+  const rules = { ...gymRules(opts.date, getKind) }
+  // Gym am Vortag zählt auch, wenn er nicht im Plan stand, aber tatsächlich trainiert wurde
+  rules.b2b = rules.b2b || all.some((x) => x.finished && x.date === prev)
+  const weekType: WeekType = weekTypeFor(phase, weekDates(opts.date), getKind)
+  let week: number
+  let block
+  if (phase === 'winter') {
+    week = Math.min(WINTER_WEEKS, Math.max(1, winterWeekOf(s.winterStart, opts.date)))
+    block = winterBlockForWeek(week).id
+  } else {
+    week = Math.min(12, Math.max(1, weekOfCycle(s.startDate, opts.date)))
+    block = blockForWeek(week).id
+  }
   const prescription = buildSession(plan, {
-    day: opts.day, block, weekType: opts.weekType, heavyLegs: opts.heavyLegs, history, states,
+    day: opts.day, block, weekType, heavyLegs: opts.heavyLegs, history, states, phase, winterWeek: phase === 'winter' ? week : undefined,
+    rules, squat1rm: s.squat1rm, date: opts.date, equipment: { trapBar: s.trapBar, medball: s.medball },
   })
   const entries: ExerciseLog[] = prescription.map((p) => ({
     pid: p.pid, exId: p.exId, name: p.name, kind: p.kind, unit: p.unit, repMin: p.repMin, repMax: p.repMax,
-    targetReps: p.reps, targetWeight: p.weight, reduced: p.reduced, block, variant: p.variant, sets: [],
+    targetReps: p.reps, targetWeight: p.weight, reduced: p.reduced, block, variant: p.variant, sets: [], date: opts.date,
+    ...(p.speed ? { speed: true, tempoGood: true } : {}),
   }))
   const session: Session = {
     date: opts.date, cycleId: s.cycleId, planId: s.activePlanId, day: opts.day, week, block,
-    weekType: opts.weekType, heavyLegs: opts.heavyLegs, warmupDone: [], notes: '', complaints: emptyComplaints(),
-    entries, prescription, finished: false,
+    weekType, heavyLegs: opts.heavyLegs && phase !== 'winter', warmupDone: [], notes: '', complaints: emptyComplaints(),
+    entries, prescription, finished: false, phase, md: rules.label || undefined,
+    rules: { md1: rules.md1, md2: rules.md2, plus1: rules.plus1, b2b: rules.b2b },
+    autoReduced: prescription.some((p) => p.reduced && p.hints.some((h) => /^(MD|Gym am Vortag|Leichte|Übergang)/.test(h))),
   }
   session.id = (await db.sessions.add(session)) as number
   return session
@@ -213,7 +302,7 @@ export async function exportAll(includeVideos: boolean): Promise<string> {
   )
   const dump = {
     app: 'kraft-app',
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     settings: await db.settings.toArray(),
     plans: await db.plans.toArray(),
@@ -224,6 +313,8 @@ export async function exportAll(includeVideos: boolean): Promise<string> {
     custom: await db.custom.toArray(),
     states: await db.states.toArray(),
     overrides: await db.overrides.toArray(),
+    schedule: await db.schedule.toArray(),
+    runs: await db.runs.toArray(),
     videos: vids,
   }
   return JSON.stringify(dump)
@@ -242,8 +333,9 @@ export async function importAll(text: string): Promise<void> {
   )
   await db.transaction('rw', db.tables, async () => {
     await Promise.all(db.tables.map((t) => t.clear()))
-    await db.settings.bulkAdd(d.settings)
-    await db.plans.bulkAdd(d.plans)
+    // Backups aus Version 1 enthalten weder Phasen noch Gym C: werden beim Import ergänzt
+    await db.settings.bulkAdd(d.settings.map(normalizeSettings))
+    await db.plans.bulkAdd(d.plans.map(normalizePlan))
     await db.cycles.bulkAdd(d.cycles)
     await db.weeks.bulkAdd(d.weeks)
     await db.sessions.bulkAdd(d.sessions)
@@ -251,6 +343,8 @@ export async function importAll(text: string): Promise<void> {
     await db.custom.bulkAdd(d.custom)
     await db.states.bulkAdd(d.states)
     await db.overrides.bulkAdd(d.overrides)
+    await db.schedule.bulkAdd(d.schedule ?? [])
+    await db.runs.bulkAdd(d.runs ?? [])
     await db.videos.bulkAdd(vids)
   })
 }

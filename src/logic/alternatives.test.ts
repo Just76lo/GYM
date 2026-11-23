@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { ALTERNATIVES, alternativesFor, applyAlternative, restoreOriginal } from '../data/alternatives'
 import { baseLibrary } from '../data/library'
 import { makeDefaultPlan } from '../data/plan'
+import { DEFAULT_EQUIPMENT, resolveExercise } from './equipment'
 import { suggestNext } from './progression'
 import { RDL_EXTRA, prescribeOne, type BuildCtx } from './session'
 import type { ExerciseLog } from './types'
@@ -9,11 +10,28 @@ import type { ExerciseLog } from './types'
 const lib = baseLibrary()
 const byId = new Map(lib.map((l) => [l.id, l]))
 const plan = makeDefaultPlan()
-const all = [...plan.days.A, ...plan.days.B, RDL_EXTRA]
+const all = [...plan.days.A, ...plan.days.B, ...plan.winterDays!.A, ...plan.winterDays!.B, ...plan.winterDays!.C, RDL_EXTRA]
+// Ersatzübungen ohne Gerät (Kreuzheben, Speed-Kniebeuge, Holzhacker) werden ebenfalls geprüft
+const resolved = [...plan.days.A, ...plan.days.B].map((e) => resolveExercise(e, DEFAULT_EQUIPMENT))
 
 describe('Alternativen pro Planübung', () => {
   it('jede Planübung hat mindestens 3 Alternativen', () => {
     for (const e of all) expect(alternativesFor(e).length, e.name).toBeGreaterThanOrEqual(3)
+  })
+  it('auch die Ersatzübungen ohne Trap-Bar/Medball und alle Winterübungen haben Alternativen', () => {
+    for (const e of [...resolved, ...all]) expect(alternativesFor(e).length, e.name).toBeGreaterThanOrEqual(3)
+  })
+  it('Alternativen der Winter-Gym-B sind nie exzentrisch schwer oder hoch belastend', () => {
+    for (const e of plan.winterDays!.B) {
+      for (const a of alternativesFor(e)) {
+        const l = byId.get(a.exId)!
+        expect(l.eccentricHeavy, `${e.name}: ${a.exId}`).toBe(false)
+        expect(l.legsLoad, `${e.name}: ${a.exId}`).not.toBe('hoch')
+      }
+    }
+  })
+  it('jede Planübung (Saison und Winter) existiert in der Bibliothek', () => {
+    for (const e of [...resolved, ...all]) expect(byId.get(e.exId), e.exId).toBeDefined()
   })
   it('jede Alternative existiert in der Bibliothek und hat einen deutschen Namen', () => {
     for (const list of Object.values(ALTERNATIVES)) {

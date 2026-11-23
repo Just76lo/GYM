@@ -28,6 +28,7 @@ const short = (d: string) => d.slice(5).split('-').reverse().join('.')
 
 export function History() {
   const sessions = (useLiveQuery(() => db.sessions.toArray()) ?? []).filter((s) => s.finished).sort((a, b) => a.date.localeCompare(b.date))
+  const runs = (useLiveQuery(() => db.runs.toArray()) ?? []).filter((r) => r.finished).sort((a, b) => b.date.localeCompare(a.date))
   const [pid, setPid] = useState<string>('')
   const [metric, setMetric] = useState<Metric>('e1rm')
   const [openSession, setOpenSession] = useState<Session | null>(null)
@@ -92,8 +93,8 @@ export function History() {
         {[...sessions].reverse().map((s) => (
           <div key={s.id} className="list-item" onClick={() => setOpenSession(openSession?.id === s.id ? null : s)}>
             <div className="row spread">
-              <b>{s.date.split('-').reverse().join('.')} · Gym {s.day}</b>
-              <span className="muted small">Woche {s.week} · {s.weekType === 'normal' ? 'normal' : s.weekType === 'noGame' ? 'ohne Spiel' : 'englisch'}</span>
+              <b>{s.date.split('-').reverse().join('.')} · Gym {s.day}{s.phase === 'winter' ? ' (Winter)' : ''}</b>
+              <span className="muted small">Woche {s.week}{s.md ? ` · ${s.md}` : ''} · {s.weekType === 'normal' ? 'normal' : s.weekType === 'noGame' ? 'ohne Spiel' : 'englisch'}</span>
             </div>
             {openSession?.id === s.id && (
               <div className="small" style={{ marginTop: 6 }}>
@@ -108,6 +109,23 @@ export function History() {
           </div>
         ))}
       </div>
+
+      {runs.length > 0 && (
+        <>
+          <h2>Läufe</h2>
+          <div className="card">
+            {runs.map((r) => (
+              <div key={r.id} className="list-item" onClick={() => { location.hash = `/run/${r.id}` }}>
+                <div className="row spread">
+                  <b>{r.date.split('-').reverse().join('.')} · {r.type}</b>
+                  <span className="muted small">{r.minutes} min · Gefühl {r.feel}/10</span>
+                </div>
+                {r.template === 'sprints' && <div className="muted small">{r.sprints.filter(Boolean).length} Sprints · {r.intervals.filter(Boolean).length} Intervalle</div>}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </>
   )
 }

@@ -3,7 +3,8 @@ import { applyAlternative, basePid, restoreOriginal } from '../data/alternatives
 import { db, finishSession, historyByPid, savePlanVersion, statesMap } from '../data/db'
 import { blockInfo } from '../logic/periodization'
 import { describeSets, doneSets, explosiveStats, fmt } from '../logic/progression'
-import { RDL_EXTRA, prescribeOne } from '../logic/session'
+import { resolveExercise, resolveList, type Equipment } from '../logic/equipment'
+import { RDL_EXTRA, daysOf, prescribeOne } from '../logic/session'
 import type { ExerciseLog, Plan, PlanExercise, Prescribed, Session, SetLog } from '../logic/types'
 import { AltSheet, type AltChoice } from './AltSheet'
 import { ExerciseSheet } from './ExerciseSheet'
@@ -20,16 +21,20 @@ const COMPLAINT_FIELDS = [
 
 const toLog = (p: Prescribed, s: Session): ExerciseLog => ({
   pid: p.pid, exId: p.exId, name: p.name, kind: p.kind, unit: p.unit, repMin: p.repMin, repMax: p.repMax,
-  targetReps: p.reps, targetWeight: p.weight, reduced: p.reduced, block: s.block, variant: p.variant, sets: [],
+  targetReps: p.reps, targetWeight: p.weight, reduced: p.reduced, block: s.block, variant: p.variant, sets: [], date: s.date,
+  ...(p.speed ? { speed: true, tempoGood: true } : {}),
 })
 
 /** Planübung, aus der ein Eintrag der Einheit entstanden ist */
-const planExerciseFor = (plan: Plan, s: Session, pid: string): PlanExercise | undefined =>
-  basePid(pid) === RDL_EXTRA.pid ? RDL_EXTRA : plan.days[s.day].find((e) => basePid(e.pid) === basePid(pid))
+const planExerciseFor = (plan: Plan, s: Session, pid: string, eq: Equipment): PlanExercise | undefined =>
+  resolveList(daysOf(plan, s.phase)[s.day] ?? [], eq).find((e) => basePid(e.pid) === basePid(pid))
+  ?? (basePid(pid) === RDL_EXTRA.pid ? RDL_EXTRA : undefined)
 
 export function Workout({ id }: { id: number }) {
   const [session, setSession] = useState<Session | null | undefined>(undefined)
   const [plan, setPlan] = useState<Plan>()
+  const [eq, setEq] = useState<Equipment>({ trapBar: false, medball: false })
+  const [squat1rm, setSquat1rm] = useState<number | undefined>()
   const [hist, setHist] = useState<Record<string, ExerciseLog[]>>({})
   const [timer, setTimer] = useState<TimerState | null>(null)
   const [demo, setDemo] = useState<string | null>(null)
@@ -47,6 +52,10 @@ export function Workout({ id }: { id: number }) {
       if (!alive) return
       latest.current = s
       setSession(s)
+      const st = await db.settings.get('main')
+      if (!alive) return
+      setEq({ trapBar: st?.trapBar ?? false, medball: st?.medball ?? false })
+      setSquat1rm(st?.squat1rm)
       setPlan(p)
       setHist(h)
       if (s && s.warmupDone.length === (p?.warmup.length ?? 0) && s.warmupDone.length) setShowWarm(false)
@@ -74,13 +83,14 @@ export function Workout({ id }: { id: number }) {
     const s = latest.current!
     const entry = s.entries[i]
     if (!plan) return
-    const base = planExerciseFor(plan, s, entry.pid)
+    const base = planExerciseFor(plan, s, entry.pid, eq)
     if (!base) return
     if (doneSets(entry.sets).length && !confirm('Für diese Übung sind schon Sätze geloggt. Trotzdem tauschen?')) return
     const next = alt ? applyAlternative(base, alt) : restoreOriginal(base)
     const p = prescribeOne(next, {
       day: s.day, block: s.block, weekType: s.weekType, heavyLegs: s.heavyLegs, history: hist,
-      states: await statesMap(), noExtraLegSet: plan.flags?.noExtraLegSet,
+      states: await statesMap(), noExtraLegSet: plan.flags?.noExtraLegSet, phase: s.phase ?? 'season',
+      winterWeek: s.phase === 'winter' ? s.week : undefined, rules: s.rules, squat1rm, date: s.date,
     }, base.pid === RDL_EXTRA.pid)
     if (!p) return
     update((x) => {
@@ -89,14 +99,15 @@ export function Workout({ id }: { id: number }) {
     })
     if (permanent && base.pid !== RDL_EXTRA.pid) {
       const np = structuredClone(plan)
-      np.days[s.day] = np.days[s.day].map((e) => (e.pid === base.pid ? next : e))
+      const target = s.phase === 'winter' ? (np.winterDays ??= { A: [], B: [], C: [] }) : np.days
+      target[s.day] = target[s.day].map((e) => (resolveExercise(e, eq).pid === base.pid ? next : e))
       const planId = await savePlanVersion(np)
       setPlan({ ...np, id: planId, version: np.version + 1 })
     }
     setSwapIdx(null)
   }
 
-  const swapEx = swapIdx !== null && plan ? planExerciseFor(plan, session, session.entries[swapIdx].pid) : undefined
+  const swapEx = swapIdx !== null && plan ? planExerciseFor(plan, session, session.entries[swapIdx].pid, eq) : undefined
   // Für die Anzeige: der aktuelle Stand dieser Einheit (evtl. nur heute getauscht)
   const swapShown = swapEx && swapIdx !== null
     ? (session.entries[swapIdx].exId === swapEx.exId ? swapEx : { ...swapEx, exId: session.entries[swapIdx].exId, orig: swapEx.orig ?? restoreOriginal(swapEx) })
@@ -114,8 +125,11 @@ export function Workout({ id }: { id: number }) {
         </div>
         {session.finished && <span className="badge ok">abgeschlossen</span>}
       </div>
-      {(session.weekType !== 'normal' || session.heavyLegs) && (
+      {(session.weekType !== 'normal' || session.heavyLegs || session.md || session.phase === 'winter' || session.autoReduced) && (
         <div className="chips" style={{ marginBottom: 6 }}>
+          {session.phase === 'winter' && <span className="badge ok">Winterpause</span>}
+          {session.md && <span className="badge">{session.md}</span>}
+          {session.autoReduced && <span className="badge warn">automatisch reduziert – zählt nicht negativ</span>}
           {session.weekType === 'noGame' && <span className="badge">Woche ohne Spiel</span>}
           {session.weekType === 'english' && <span className="badge warn">Englische Woche</span>}
           {session.heavyLegs && <span className="badge warn">Beine schwer</span>}
@@ -150,6 +164,7 @@ export function Workout({ id }: { id: number }) {
           last={hist[entry.pid]}
           block={session.block}
           onDemo={() => setDemo(entry.exId)}
+          onTempo={(v) => update((x) => { x.entries[ei].tempoGood = v })}
           onSwap={() => setSwapIdx(ei)}
           onSet={(j, patch) => {
             const p = rx(entry.pid)
@@ -235,9 +250,9 @@ export function Workout({ id }: { id: number }) {
   )
 }
 
-function ExerciseCard({ p, entry, last, block, onDemo, onSwap, onSet }: {
+function ExerciseCard({ p, entry, last, block, onDemo, onSwap, onSet, onTempo }: {
   p: Prescribed; entry: ExerciseLog; last?: ExerciseLog[]; block: string
-  onDemo: () => void; onSwap: () => void; onSet: (j: number, patch: Partial<SetLog>) => void
+  onDemo: () => void; onSwap: () => void; onSet: (j: number, patch: Partial<SetLog>) => void; onTempo: (v: boolean) => void
 }) {
   const rows = Math.max(p.sets, entry.sets.length)
   const unitW = p.unit === 'cm' ? 'cm' : 'kg'
@@ -301,6 +316,12 @@ function ExerciseCard({ p, entry, last, block, onDemo, onSwap, onSet }: {
           </div>
         )
       })}
+      {entry.speed && (
+        <label className="check" style={{ marginTop: 8 }}>
+          <input type="checkbox" checked={entry.tempoGood !== false} onChange={(e) => onTempo(e.target.checked)} />
+          <span>Tempo blieb in allen Sätzen gut<br /><span className="muted small">Nur dann gibt es nach 2 Wochen +2,5 kg. Satz beenden, sobald die Wiederholung langsamer wird.</span></span>
+        </label>
+      )}
       <button className="btn xs" style={{ marginTop: 10 }} onClick={() => onSet(rows, {})}><Icon name="plus" size={14} /> Satz</button>
     </section>
   )

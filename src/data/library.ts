@@ -185,6 +185,16 @@ const OVERRIDES: Record<string, Over> = {
     instrDe: ['Stange hüftnah, Knie leicht gebeugt.', 'Hüfte nach hinten schieben bis die Oberschenkelrückseite spannt.', 'Mit Gesäß nach vorn aufrichten.'],
     mistakesDe: ['Rundrücken', 'Stange vom Körper weg', 'Zu tief gehen mit rundem Rücken'],
   },
+  Barbell_Deadlift: {
+    nameDe: 'Kreuzheben konventionell', category: 'Kraft', legsLoad: 'hoch', eccentricHeavy: false, ok2DaysBeforeGame: false,
+    instrDe: [
+      'Stange über Mittelfuß, Füße hüftbreit, Griff knapp außerhalb der Beine.',
+      'Brust raus, Rücken lang, Spannung in den Armen aufbauen, Stange bleibt am Körper.',
+      'Boden wegdrücken, Hüfte und Schultern steigen gleichzeitig, oben Gesäß anspannen.',
+      'Kontrolliert und körpernah ablegen.',
+    ],
+    mistakesDe: ['Rundrücken', 'Hüfte schießt zuerst hoch', 'Stange vom Körper weg', 'Überstreckung am Ende'],
+  },
   Single_Leg_Glute_Bridge: { nameDe: 'Einbeinige Glute Bridge', focus: ['Hamstrings'], legsLoad: 'niedrig', eccentricHeavy: false, ok2DaysBeforeGame: true },
   Monster_Walk: {
     nameDe: 'Monster Walks mit Band', category: 'Prävention', focus: ['Leiste', 'Knie'], legsLoad: 'niedrig', eccentricHeavy: false, ok2DaysBeforeGame: true,
@@ -256,6 +266,20 @@ const ADDED: LibExercise[] = [
     eccentricHeavy: true, ok2DaysBeforeGame: false, focus: ['Knie'],
     instrDe: ['Hinterer Fuß auf der Bank, vorderer Fuß ca. 1 m davor.', 'Gerade nach unten absenken bis der Oberschenkel waagerecht ist.', 'Über die ganze Fußsohle nach oben drücken.'],
     mistakesDe: ['Knie fällt nach innen', 'Zu nah an der Bank', 'Oberkörper kippt weit nach vorn'],
+  }),
+  mk({
+    id: 'speed-squat', nameEn: 'Speed Squat', nameDe: 'Speed-Kniebeuge', category: 'Schnellkraft/Plyometrie',
+    primary: ['quadriceps', 'glutes'], secondary: ['hamstrings'], equipment: 'barbell', legsLoad: 'mittel',
+    ok2DaysBeforeGame: false,
+    instrDe: ['Langhantel auf dem Rücken, 50–60 % des Kniebeugen-1RM.', 'Kontrolliert bis zur Parallelen absenken, dann so schnell wie möglich hochdrücken.', 'Satz beenden, sobald die Wiederholung langsamer wird.'],
+    mistakesDe: ['Zu schwer – die Stange wird langsam', 'Absenken zu schnell und unkontrolliert', 'Weiter trainieren trotz Tempoverlust'],
+  }),
+  mk({
+    id: 'skater-jump', nameEn: 'Skater Jump', nameDe: 'Skater Jumps', category: 'Schnellkraft/Plyometrie',
+    primary: ['quadriceps', 'glutes', 'abductors'], secondary: ['calves', 'adductors'], equipment: 'body only', legsLoad: 'mittel',
+    ok2DaysBeforeGame: false,
+    instrDe: ['Von einem Bein seitlich auf das andere springen.', 'Auf dem Landebein stabil abfangen (Knie über dem Fuß), 1 s halten.', 'Weite pro Sprung steigern.'],
+    mistakesDe: ['Knie fällt nach innen', 'Landung ohne Kontrolle', 'Zu kurze Sprünge ohne Abdruck'],
   }),
   mk({
     id: 'iso-hamstring-hold', nameEn: 'Isometric Hamstring Hold', nameDe: 'Isometrischer Hamstring-Hold (Ferse in Bank drücken)',

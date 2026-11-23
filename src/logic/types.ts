@@ -1,6 +1,7 @@
-export type DayId = 'A' | 'B'
+export type DayId = 'A' | 'B' | 'C'
+export type Phase = 'season' | 'winter'
 export type WeekType = 'normal' | 'noGame' | 'english'
-export type BlockId = 'basis' | 'kraft' | 'power' | 'deload'
+export type BlockId = 'basis' | 'kraft' | 'power' | 'deload' | 'wbuild' | 'wlight' | 'wstrength' | 'wtrans'
 export type Kind = 'weight' | 'explosive' | 'isometric' | 'nordic'
 export type Cat = 'legs' | 'upper' | 'core' | 'prevention' | 'power' | 'legpower'
 export type Unit = 'kg' | 'cm' | 's'
@@ -36,6 +37,10 @@ export interface PlanExercise {
   loadFrom?: { pid: string; pct: number }
   /** Power-Block: nach jedem Satz Kontrast-Hinweis */
   contrast?: boolean
+  /** Winterpause: abweichender RPE in Woche 1 des Blocks */
+  rpeWeek1?: number
+  /** Speed-Kniebeuge: Last nach Tempo statt RIR, +Inkrement alle 2 Wochen */
+  speed?: boolean
   /** Ursprüngliche Planübung, falls gegen eine Alternative getauscht */
   orig?: Omit<PlanExercise, 'orig'>
 }
@@ -57,7 +62,10 @@ export interface Plan {
   version: number
   template?: boolean
   createdAt: string
+  /** Saison: A und B (C bleibt leer) */
   days: Record<DayId, PlanExercise[]>
+  /** Winterpause: A, B und C */
+  winterDays?: Record<DayId, PlanExercise[]>
   warmup: WarmupItem[]
   flags?: PlanFlags
 }
@@ -83,6 +91,11 @@ export interface ExerciseLog {
   block: BlockId
   variant?: string
   sets: SetLog[]
+  /** Datum der Einheit (nur beim Lesen aus dem Verlauf ergänzt) */
+  date?: string
+  /** Speed-Kniebeuge: Tempo ist über alle Sätze gut geblieben */
+  tempoGood?: boolean
+  speed?: boolean
 }
 
 export interface Complaints {
@@ -110,6 +123,14 @@ export interface Session {
   /** Vorschläge/Begründungen zum Start der Einheit */
   prescription: Prescribed[]
   finished: boolean
+  /** Phase der Einheit (fehlt bei Einheiten vor dem Update = Saison) */
+  phase?: Phase
+  /** Spielabstand-Label, z. B. „MD+1“ */
+  md?: string
+  /** angewendete Spielabstand-Regeln (für Tausch während der Einheit) */
+  rules?: { md1: boolean; md2: boolean; plus1: boolean; b2b: boolean }
+  /** automatisch reduziert (MD-Regeln, Entlastung): zählt nicht negativ */
+  autoReduced?: boolean
 }
 
 export interface Prescribed {
@@ -135,6 +156,7 @@ export interface Prescribed {
   variant?: string
   contrast?: boolean
   extra?: boolean
+  speed?: boolean
 }
 
 export interface ExState {

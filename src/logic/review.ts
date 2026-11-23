@@ -236,7 +236,8 @@ export function proposeNextPlan(report: CycleReport, plan: Plan, lib: LibExercis
 export function validatePlan(plan: Plan, lib: LibExercise[]): string[] {
   const issues: string[] = []
   const byEx = new Map(lib.map((l) => [l.id, l]))
-  const keys = Object.keys(plan.days)
+  // Saison: nur A und B (C ist leer und gehört zur Winterpause)
+  const keys = Object.keys(plan.days).filter((k) => k !== 'C' || plan.days.C?.length)
   if (keys.length !== 2 || !plan.days.A || !plan.days.B) issues.push('Gym nur Montag (A) und Freitag (B).')
   if (!plan.days.A.some((e) => e.kind === 'nordic')) issues.push('Nordics fehlen im Plan.')
   if (![...plan.days.A, ...plan.days.B].some((e) => e.exId === 'copenhagen-plank')) issues.push('Copenhagen Plank fehlt im Plan.')

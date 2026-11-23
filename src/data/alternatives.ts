@@ -130,6 +130,78 @@ export const ALTERNATIVES: Record<string, Alternative[]> = {
     { exId: 'Calf_Press_On_The_Leg_Press_Machine', name: 'Wadenheben an der Beinpresse', why: 'Beinpresse frei.', adjust: { inc: 5 } },
     { exId: 'Seated_Calf_Raise', name: 'Wadenheben sitzend', why: 'Betont den Soleus (wichtig für Sprints).' },
   ],
+  Barbell_Deadlift: [
+    { exId: 'Sumo_Deadlift', name: 'Sumo-Kreuzheben', why: 'Aufrechter Oberkörper, schont den unteren Rücken.' },
+    { exId: 'Rack_Pull_with_Bands', name: 'Rack Pull', why: 'Kürzerer Weg, wenn der Boden-Start Probleme macht.' },
+    { exId: 'Goblet_Squat', name: 'Goblet Squat', why: 'Keine Langhantel frei: Kurzhantel oder Kettlebell vor der Brust.', adjust: { repMin: 6, repMax: 8, inc: 2 } },
+    { exId: 'Leg_Press', name: 'Beinpresse', why: 'Maschine statt freiem Gewicht, wenig Technikanspruch.', adjust: { repMin: 6, repMax: 8, inc: 5 } },
+  ],
+  Barbell_Full_Squat: [
+    { exId: 'Front_Squat_Clean_Grip', name: 'Frontkniebeuge', why: 'Aufrechter, mehr Quadrizeps, weniger Rücken.' },
+    { exId: 'Smith_Machine_Squat', name: 'Kniebeuge an der Multipresse', why: 'Kein freies Rack: geführte Stange.' },
+    { exId: 'Hack_Squat', name: 'Hackenschmidt-Kniebeuge', why: 'Maschine, wenn die Langhantel belegt ist.' },
+    { exId: 'Goblet_Squat', name: 'Goblet Squat', why: 'Nur Kurzhanteln verfügbar.', adjust: { repMin: 8, repMax: 10, inc: 2 } },
+  ],
+  'Barbell_Incline_Bench_Press_-_Medium_Grip': [
+    { exId: 'Incline_Dumbbell_Press', name: 'Kurzhantel-Schrägbankdrücken', why: 'Langhantel belegt: Gewicht pro Hand.', adjust: { inc: 2 } },
+    { exId: 'Smith_Machine_Incline_Bench_Press', name: 'Schrägbankdrücken an der Multipresse', why: 'Geführt, ohne Spotter.' },
+    { exId: 'Leverage_Incline_Chest_Press', name: 'Schräge Brustpresse (Maschine)', why: 'Keine Schrägbank frei.' },
+  ],
+  'Lying_T-Bar_Row': [
+    { exId: 'Seated_Cable_Rows', name: 'Kabelrudern sitzend', why: 'Brustgestützte Maschine belegt.', adjust: { inc: 2.5 } },
+    { exId: 'Bent_Over_Two-Dumbbell_Row', name: 'Vorgebeugtes KH-Rudern', why: 'Kein Gerät frei.', adjust: { inc: 2 } },
+    { exId: 'T-Bar_Row_with_Handle', name: 'T-Bar-Rudern', why: 'Ähnlicher Zug, ohne Brustauflage.', adjust: { inc: 2.5 } },
+    { exId: 'Inverted_Row', name: 'Rudern am Körpergewicht', why: 'Gar kein Gerät frei.', adjust: { inc: 0 } },
+  ],
+  Barbell_Hip_Thrust: [
+    { exId: 'Barbell_Glute_Bridge', name: 'Glute Bridge (Langhantel)', why: 'Keine Bank frei: vom Boden aus.' },
+    { exId: 'Single_Leg_Glute_Bridge', name: 'Einbeinige Glute Bridge', why: 'Kein Gewicht frei, einbeinig schwerer.', adjust: { inc: 2.5, perSide: true } },
+    { exId: 'Butt_Lift_Bridge', name: 'Glute Bridge beidbeinig', why: 'Leichteste Stufe bei Beschwerden.', adjust: { inc: 2.5 } },
+    { exId: 'Glute_Kickback', name: 'Glute Kickback', why: 'Kabelzug statt Langhantel.', adjust: { inc: 2.5, perSide: true } },
+  ],
+  Thigh_Adductor: [
+    { exId: 'Cable_Hip_Adduction', name: 'Adduktion am Kabelzug', why: 'Maschine belegt: Kabelzug mit Fußschlaufe.', adjust: { perSide: true } },
+    { exId: 'Band_Hip_Adductions', name: 'Adduktion mit Band', why: 'Nur ein Band verfügbar.', adjust: { inc: 0, perSide: true } },
+    { exId: 'band-hip-adduction-iso', name: 'Seitliches Adduktoren-Heben', why: 'Ohne Gerät, gut bei Leistenbeschwerden.', adjust: { inc: 0, kind: 'weight', unit: 'kg', repMin: 8, repMax: 12 } },
+  ],
+  Side_Lateral_Raise: [
+    { exId: 'Cable_Seated_Lateral_Raise', name: 'Seitheben am Kabel', why: 'Durchgehende Spannung, Kurzhanteln belegt.', adjust: { inc: 1 } },
+    { exId: 'Lateral_Raise_-_With_Bands', name: 'Seitheben mit Band', why: 'Nur ein Band verfügbar.', adjust: { inc: 0 } },
+    { exId: 'Seated_Side_Lateral_Raise', name: 'Seitheben sitzend', why: 'Weniger Schwung aus den Beinen.' },
+  ],
+  Dumbbell_Bicep_Curl: [
+    { exId: 'Barbell_Curl', name: 'Langhantel-Curls', why: 'Kurzhanteln belegt.', adjust: { inc: 2.5 } },
+    { exId: 'Standing_Biceps_Cable_Curl', name: 'Bizeps-Curl am Kabel', why: 'Gleichmäßige Spannung.', adjust: { inc: 2.5 } },
+    { exId: 'Machine_Bicep_Curl', name: 'Bizeps-Maschine', why: 'Gerät statt freies Gewicht.', adjust: { inc: 2.5 } },
+    { exId: 'Alternate_Hammer_Curl', name: 'Hammer-Curls', why: 'Betont den Unterarm, handgelenksfreundlich.' },
+  ],
+  'Dips_-_Triceps_Version': [
+    { exId: 'Weighted_Bench_Dip', name: 'Bank-Dips mit Gewicht', why: 'Kein Dip-Gerät: Hände auf der Bank, Gewicht auf den Oberschenkeln.' },
+    { exId: 'Close-Grip_Barbell_Bench_Press', name: 'Enges Bankdrücken', why: 'Trizeps und Brust ohne Dip-Station.', adjust: { repMin: 6, repMax: 8 } },
+    { exId: 'Bench_Dips', name: 'Bank-Dips', why: 'Gar kein Gerät.', adjust: { repMin: 10, repMax: 15, inc: 0 } },
+    { exId: 'Pushups', name: 'Liegestütze mit Zusatzgewicht', why: 'Weste oder Rucksack als Zusatzgewicht.', adjust: { repMin: 8, repMax: 12 } },
+  ],
+  'Wide-Grip_Lat_Pulldown': [
+    { exId: 'Close-Grip_Front_Lat_Pulldown', name: 'Latzug eng', why: 'Breite Stange belegt.' },
+    { exId: 'Chin-Up', name: 'Klimmzüge im Untergriff', why: 'Kein Kabelturm frei.', adjust: { inc: 2.5, repMin: 6, repMax: 8 } },
+    { exId: 'Seated_Cable_Rows', name: 'Kabelrudern sitzend', why: 'Latzug belegt.' },
+    { exId: 'Bent_Over_Two-Dumbbell_Row', name: 'Vorgebeugtes KH-Rudern', why: 'Kein Kabelzug frei.', adjust: { inc: 2 } },
+  ],
+  'skater-jump': [
+    { exId: 'Lateral_Bound', name: 'Seitliche Sprünge (Lateral Bound)', why: 'Weniger Platz, gleicher Reiz.', fields: jump },
+    { exId: 'Side_Standing_Long_Jump', name: 'Seitlicher Standweitsprung', why: 'Beidbeinig statt einbeinig landen.', fields: jump },
+    { exId: 'Split_Jump', name: 'Split Jump', why: 'Sprintnah, auf der Stelle.', fields: jump, adjust: { unit: 'cm' } },
+  ],
+  'speed-squat': [
+    { exId: 'Weighted_Jump_Squat', name: 'Jump Squat mit Last', why: 'Gleiches Ziel: schnelle Kraftentwicklung.', fields: jump },
+    { exId: 'Freehand_Jump_Squat', name: 'Squat Jump ohne Gewicht', why: 'Keine Langhantel frei: Höhe in cm loggen.', fields: jump, adjust: { loadFrom: undefined, unit: 'cm', inc: 0, speed: undefined } },
+    { exId: 'countermovement-jump', name: 'Countermovement Jump', why: 'Einfachste Ausweichlösung.', adjust: { loadFrom: undefined, unit: 'cm', inc: 0, speed: undefined } },
+  ],
+  Standing_Cable_Wood_Chop: [
+    { exId: 'Pallof_Press_With_Rotation', name: 'Pallof Press mit Rotation', why: 'Kabel belegt oder Rotation kontrollierter.', adjust: { kind: 'weight', repMin: 8, repMax: 10, rpe: 8 } },
+    { exId: 'Cable_Russian_Twists', name: 'Russian Twists am Kabel', why: 'Rotation am Kabelzug, ruhiger.', adjust: { repMin: 8, repMax: 10 } },
+    { exId: 'Russian_Twist', name: 'Russian Twists', why: 'Gar kein Gerät: mit Gewichtsscheibe.', adjust: { repMin: 8, repMax: 10 } },
+  ],
   Romanian_Deadlift: [
     { exId: 'Stiff-Legged_Dumbbell_Deadlift', name: 'Rumänisches Kreuzheben (Kurzhanteln)', why: 'Keine Langhantel frei.', adjust: { inc: 2 } },
     { exId: 'Kettlebell_One-Legged_Deadlift', name: 'Einbeiniges Kreuzheben (KB/KH)', why: 'Leichtere Last, mehr Stabilität gefordert.', adjust: { inc: 2, perSide: true } },

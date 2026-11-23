@@ -18,7 +18,29 @@ export const BLOCKS: BlockInfo[] = [
 
 export const CYCLE_WEEKS = 12
 
-export const blockInfo = (id: BlockId): BlockInfo => BLOCKS.find((b) => b.id === id)!
+/** Winterpause (9 Wochen ab Startdatum) */
+export const WINTER_BLOCKS: BlockInfo[] = [
+  { id: 'wbuild', label: 'Aufbau', weeks: [1, 3], rirLow: 2, rirHigh: 2, rirText: '2' },
+  { id: 'wlight', label: 'Leichte Woche', weeks: [4, 4], rirLow: 4, rirHigh: 4, rirText: '4' },
+  { id: 'wstrength', label: 'Kraft', weeks: [5, 8], rirLow: 1, rirHigh: 2, rirText: '1–2' },
+  { id: 'wtrans', label: 'Übergang', weeks: [9, 9], rirLow: 3, rirHigh: 3, rirText: '3' },
+]
+export const WINTER_WEEKS = 9
+export const WINTER_START_DEFAULT = '2026-11-30'
+
+export const blockInfo = (id: BlockId): BlockInfo =>
+  [...BLOCKS, ...WINTER_BLOCKS].find((b) => b.id === id)!
+
+/** Winterwoche (1-basiert) für ein Datum, ungeklemmt */
+export const winterWeekOf = (start: string, date: string): number => weekOfCycle(start, date)
+
+export function winterBlockForWeek(week: number): BlockInfo {
+  const w = Math.min(Math.max(week, 1), WINTER_WEEKS)
+  return WINTER_BLOCKS.find((b) => w >= b.weeks[0] && w <= b.weeks[1])!
+}
+
+/** Blöcke, in denen die Einheit bewusst reduziert ist (Gewicht/Reps bleiben aus der letzten regulären Einheit) */
+export const isReliefBlock = (b: BlockId): boolean => b === 'deload' || b === 'wlight' || b === 'wtrans'
 
 export function blockForWeek(week: number): BlockInfo {
   const w = Math.min(Math.max(week, 1), CYCLE_WEEKS)
@@ -57,7 +79,7 @@ export const WEEK_PLAN = [
 
 /** Wendet Block-Überschreibungen (Kraft/Power) auf Sätze und Wiederholungsbereich an. */
 export function applyBlock(ex: PlanExercise, block: BlockId): PlanExercise {
-  if ((block === 'kraft' || block === 'power') && ex.kraft) {
+  if ((block === 'kraft' || block === 'power' || block === 'wstrength') && ex.kraft) {
     return { ...ex, ...ex.kraft }
   }
   return ex

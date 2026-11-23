@@ -4,7 +4,9 @@ import { db, savePlanVersion, saveTemplate } from '../data/db'
 import { nameOf, type LibExercise } from '../data/library'
 import { validatePlan } from '../logic/review'
 import { fmt } from '../logic/progression'
-import type { Cat, DayId, Plan, PlanExercise } from '../logic/types'
+import { resolvePlan } from '../logic/equipment'
+import type { Cat, DayId, Phase, Plan, PlanExercise } from '../logic/types'
+import { makeWinterDays, normalizePlan } from '../data/plan'
 import { applyAlternative, restoreOriginal } from '../data/alternatives'
 import { AltSheet } from './AltSheet'
 import { ExerciseSheet } from './ExerciseSheet'
@@ -26,10 +28,16 @@ function fromLib(l: LibExercise, day: DayId): PlanExercise {
 
 export function PlanEditor() {
   const settings = useLiveQuery(() => db.settings.get('main'))
-  const active = useLiveQuery(async () => {
+  const rawActive = useLiveQuery(async () => {
     const s = await db.settings.get('main')
     return s ? db.plans.get(s.activePlanId) : undefined
   })
+  // Geräteschalter (Trap-Bar/Medball) angewendet: der Editor zeigt, was im Training wirklich drankommt
+  const active = useMemo(
+    () => (rawActive && settings ? resolvePlan(normalizePlan(rawActive), { trapBar: settings.trapBar ?? false, medball: settings.medball ?? false }) : undefined),
+    [rawActive, settings],
+  )
+  const [phase, setPhase] = useState<Phase | null>(null)
   const allPlans = useLiveQuery(() => db.plans.toArray()) ?? []
   const lib = useLibrary()
   const [edited, setDraft] = useState<Plan | null>(null)
@@ -43,8 +51,11 @@ export function PlanEditor() {
 
   // Entwurf entsteht erst bei der ersten Änderung; bis dahin wird der aktive Plan gezeigt
   const draft = edited ?? active ?? null
-  const dirty = useMemo(() => !!draft && !!active && JSON.stringify({ d: draft.days, w: draft.warmup, f: draft.flags, n: draft.name }) !== JSON.stringify({ d: active.days, w: active.warmup, f: active.flags, n: active.name }), [draft, active])
+  const dirty = useMemo(() => !!draft && !!active && JSON.stringify({ d: draft.days, v: draft.winterDays, w: draft.warmup, f: draft.flags, n: draft.name }) !== JSON.stringify({ d: active.days, v: active.winterDays, w: active.warmup, f: active.flags, n: active.name }), [draft, active])
   if (!draft || !settings) return <p className="muted">Lade …</p>
+  const ph: Phase = phase ?? settings.phase ?? 'season'
+  const dd = (p: Plan): Record<DayId, PlanExercise[]> => (ph === 'winter' ? (p.winterDays ??= makeWinterDays()) : p.days)
+  const days = dd(draft)
 
   const byEx = new Map(lib.map((l) => [l.id, l]))
   const issues = validatePlan(draft, lib)
@@ -56,23 +67,28 @@ export function PlanEditor() {
     if (l.legsLoad === 'hoch') return 'Freitag: hohe Beinbelastung!'
     return null
   }
-  const cur = edit ? draft.days[edit.day][edit.i] : null
-  const setCur = (patch: Partial<PlanExercise>) => edit && mut((p) => { p.days[edit.day][edit.i] = { ...p.days[edit.day][edit.i], ...patch } })
+  const cur = edit ? days[edit.day][edit.i] : null
+  const setCur = (patch: Partial<PlanExercise>) => edit && mut((p) => { dd(p)[edit.day][edit.i] = { ...dd(p)[edit.day][edit.i], ...patch } })
 
   return (
     <>
       <h1>Plan bearbeiten</h1>
       <p className="muted">{draft.name} · Version {draft.version}</p>
+      <div className="chips" style={{ marginBottom: 8 }}>
+        {([['season', 'Saison'], ['winter', 'Winterpause']] as const).map(([k, l]) => (
+          <button key={k} className={`chip ${ph === k ? 'on' : ''}`} onClick={() => { setPhase(k); if (k === 'season' && tab === 'C') setTab('A') }}>{l}</button>
+        ))}
+      </div>
       <div className="chips">
-        {([['A', 'Gym A (Mo)'], ['B', 'Gym B (Fr)'], ['warm', 'Aufwärmen'], ['ver', 'Versionen']] as const).map(([k, l]) => (
-          <button key={k} className={`chip ${tab === k ? 'on' : ''}`} onClick={() => setTab(k)}>{l}</button>
+        {([['A', ph === 'winter' ? 'Gym A (Kraft)' : 'Gym A'], ['B', ph === 'winter' ? 'Gym B (Schnellkraft)' : 'Gym B'], ...(ph === 'winter' ? [['C', 'Gym C (Aufbau)']] : []), ['warm', 'Aufwärmen'], ['ver', 'Versionen']] as [string, string][]).map(([k, l]) => (
+          <button key={k} className={`chip ${tab === k ? 'on' : ''}`} onClick={() => setTab(k as DayId | 'warm' | 'ver')}>{l}</button>
         ))}
       </div>
       {issues.map((s, i) => <div className="banner" key={i}><Icon name="alert" size={16} /> {s}</div>)}
 
-      {(tab === 'A' || tab === 'B') && (
+      {(tab === 'A' || tab === 'B' || tab === 'C') && (
         <>
-          {draft.days[tab].map((e, i) => {
+          {days[tab].map((e, i) => {
             const w = warn(tab, e)
             return (
               <div className="card" key={e.pid}>
@@ -84,14 +100,14 @@ export function PlanEditor() {
                     {w && <div className="hint"><Icon name="alert" size={14} /> {w}</div>}
                   </div>
                   <div className="row">
-                    <button className="iconbtn" aria-label="nach oben" disabled={i === 0} onClick={() => mut((p) => { const l = p.days[tab]; [l[i - 1], l[i]] = [l[i], l[i - 1]] })}><Icon name="up" /></button>
-                    <button className="iconbtn" aria-label="nach unten" disabled={i === draft.days[tab].length - 1} onClick={() => mut((p) => { const l = p.days[tab]; [l[i + 1], l[i]] = [l[i], l[i + 1]] })}><Icon name="down" /></button>
+                    <button className="iconbtn" aria-label="nach oben" disabled={i === 0} onClick={() => mut((p) => { const l = dd(p)[tab]; [l[i - 1], l[i]] = [l[i], l[i - 1]] })}><Icon name="up" /></button>
+                    <button className="iconbtn" aria-label="nach unten" disabled={i === days[tab].length - 1} onClick={() => mut((p) => { const l = dd(p)[tab]; [l[i + 1], l[i]] = [l[i], l[i + 1]] })}><Icon name="down" /></button>
                   </div>
                 </div>
                 <div className="row wrap" style={{ marginTop: 8 }}>
                   <button className="btn xs" onClick={() => setEdit({ day: tab, i })}><Icon name="edit" size={14} /> Bearbeiten</button>
                   <button className="btn xs" onClick={() => setSwap({ day: tab, i })}><Icon name="swap" size={14} /> Tauschen</button>
-                  <button className="btn xs ghost danger" onClick={() => confirm(`„${e.name}“ entfernen?`) && mut((p) => { p.days[tab].splice(i, 1) })}>Entfernen</button>
+                  <button className="btn xs ghost danger" onClick={() => confirm(`„${e.name}“ entfernen?`) && mut((p) => { dd(p)[tab].splice(i, 1) })}>Entfernen</button>
                 </div>
               </div>
             )
@@ -162,15 +178,15 @@ export function PlanEditor() {
 
       {swap && (
         <AltSheet
-          ex={draft.days[swap.day][swap.i]}
+          ex={days[swap.day][swap.i]}
           allowPermanent
           planMode
           onClose={() => setSwap(null)}
           onMore={() => { setBrowse(swap); setSwap(null) }}
           onPick={({ alt }) => {
             mut((p) => {
-              const old = p.days[swap.day][swap.i]
-              p.days[swap.day][swap.i] = alt ? applyAlternative(old, alt) : restoreOriginal(old)
+              const old = dd(p)[swap.day][swap.i]
+              dd(p)[swap.day][swap.i] = alt ? applyAlternative(old, alt) : restoreOriginal(old)
             })
             setSwap(null)
           }}
@@ -178,13 +194,13 @@ export function PlanEditor() {
       )}
       {browse && (
         <ExerciseSheet
-          exId={draft.days[browse.day][browse.i].exId}
+          exId={days[browse.day][browse.i].exId}
           onClose={() => setBrowse(null)}
           pickLabel="Übernehmen"
           onPick={(l) => {
             mut((p) => {
-              const old = restoreOriginal(p.days[browse.day][browse.i])
-              p.days[browse.day][browse.i] = { ...old, exId: l.id, name: nameOf(l), orig: old, pid: `${old.pid}@${l.id}` }
+              const old = restoreOriginal(dd(p)[browse.day][browse.i])
+              dd(p)[browse.day][browse.i] = { ...old, exId: l.id, name: nameOf(l), orig: old, pid: `${old.pid}@${l.id}` }
             })
             setBrowse(null)
           }}
@@ -195,7 +211,7 @@ export function PlanEditor() {
         <Sheet title="Übung hinzufügen" onClose={() => setAdding(null)}>
           <input type="search" placeholder="Suchen …" value={addQ} onChange={(e) => setAddQ(e.target.value)} />
           {lib.filter((l) => addQ.trim().length > 1 && (nameOf(l).toLowerCase().includes(addQ.toLowerCase()) || l.nameEn.toLowerCase().includes(addQ.toLowerCase()))).slice(0, 30).map((l) => (
-            <div className="list-item row spread" key={l.id} onClick={() => { mut((p) => { p.days[adding].push(fromLib(l, adding)) }); setAdding(null); setAddQ('') }}>
+            <div className="list-item row spread" key={l.id} onClick={() => { mut((p) => { dd(p)[adding].push(fromLib(l, adding)) }); setAdding(null); setAddQ('') }}>
               <span>{nameOf(l)}</span>
               {adding === 'B' && (l.eccentricHeavy || l.legsLoad === 'hoch') && <span className="badge bad">Fr ungeeignet</span>}
             </div>
